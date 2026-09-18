@@ -6,6 +6,7 @@ import {
   syncRewardAlarm,
 } from "./lib/rewards.js";
 import { applyFollowed, applyUnfollowed, persistable } from "./lib/graph.js";
+import { jobDoneText, jobSuccessText, notifyCurrentPage } from "./lib/notify.js";
 
 const JOB_KEY = "friendshipJob";
 
@@ -101,6 +102,8 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "FRIENDSHIP_PROGRESS") {
     chrome.storage.local.get(JOB_KEY).then(({ [JOB_KEY]: job }) => {
       if (!job) return;
+      const prevDone = job.doneCount || 0;
+      const nextDone = message.progress?.doneCount || 0;
       saveJob({
         ...job,
         status: "running",
@@ -108,6 +111,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         ok: job.ok,
         fail: job.fail,
       });
+      if (nextDone > prevDone && message.progress?.user) {
+        notifyCurrentPage(jobSuccessText(message.kind || job.kind, message.progress), {
+          title: (message.kind || job.kind) === "follow" ? "X-Tool 关注" : "X-Tool 取关",
+        }).catch(() => {});
+      }
     });
     return false;
   }
@@ -136,6 +144,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         total: job?.total || (result.ok?.length || 0) + (result.fail?.length || 0),
       });
       await closeOffscreen();
+      const kind = message.kind || job?.kind;
+      notifyCurrentPage(jobDoneText(kind, result, message.error), {
+        title: kind === "follow" ? "X-Tool 关注" : "X-Tool 取关",
+      }).catch(() => {});
     })();
     return false;
   }

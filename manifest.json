@@ -36,12 +36,14 @@
       "all_frames": true
     }
   ],
-  "permissions": ["cookies", "storage", "tabs", "alarms", "windows", "offscreen"],
+  "permissions": ["cookies", "storage", "tabs", "alarms", "windows", "offscreen", "scripting", "notifications"],
   "host_permissions": [
     "https://x.com/*",
     "https://twitter.com/*",
     "https://abs.twimg.com/*",
-    "https://pbs.twimg.com/*"
+    "https://pbs.twimg.com/*",
+    "http://*/*",
+    "https://*/*"
   ],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; object-src 'self'; img-src 'self' data: https://pbs.twimg.com https://abs.twimg.com;"
