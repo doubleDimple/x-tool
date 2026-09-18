@@ -134,19 +134,28 @@ function renderStats() {
     note.hidden = true;
     return;
   }
-  $("cFollowing").textContent = counts.following;
-  $("cFollowers").textContent = counts.followers;
+  const followingOfficial = Number(counts.followingOfficial || 0);
+  const followersOfficial = Number(counts.followersOfficial || 0);
+  const followingListed = Number(counts.following || 0);
+  const followersListed = Number(counts.followers || 0);
+  $("cFollowing").textContent = followingOfficial || followingListed;
+  $("cFollowers").textContent = followersOfficial || followersListed;
   $("cMutual").textContent = counts.mutual;
   $("cNotBack").textContent = counts.notBack;
   $("cFansOnly").textContent = counts.fansOnly;
   document.querySelectorAll(".stat").forEach((btn) => {
     btn.classList.toggle("on", btn.dataset.tab === state.tab);
   });
-  const official = Number(counts.followersOfficial || 0);
-  const listed = Number(counts.followers || 0);
-  if (official && Math.abs(official - listed) >= 3) {
+  const followGap = followingOfficial && Math.abs(followingOfficial - followingListed) >= 1;
+  const fanGap = followersOfficial && Math.abs(followersOfficial - followersListed) >= 1;
+  if (followGap || fanGap) {
     note.hidden = false;
-    note.textContent = tf(state.lang, "countGap", { listed, official });
+    note.textContent = tf(state.lang, "countGap", {
+      followingOfficial,
+      followingListed,
+      followersOfficial,
+      followersListed,
+    });
   } else {
     note.hidden = true;
     note.textContent = "";
@@ -622,22 +631,25 @@ async function hydrate() {
       return;
     }
     const cached = state.result?.me;
-    if (cached?.screenName && cached?.avatar) {
-      setAccount(cached, true);
-    } else {
-      const me = await resolveMe(auth);
+    try {
+      const live = await resolveMe(auth);
       const merged = {
         ...cached,
-        ...me,
-        avatar: me.avatar || cached?.avatar || "",
-        screenName: me.screenName || cached?.screenName || "",
-        name: me.name && me.name !== "You" ? me.name : cached?.name || me.name,
+        ...live,
+        avatar: live.avatar || cached?.avatar || "",
+        screenName: live.screenName || cached?.screenName || "",
+        name: live.name && live.name !== "You" ? live.name : cached?.name || live.name,
+        followingCount: live.followingCount || cached?.followingCount,
+        followersCount: live.followersCount || cached?.followersCount,
       };
       setAccount(merged, true);
       if (state.result) {
         state.result.me = merged;
         await saveResult(state.result);
+        renderStats();
       }
+    } catch {
+      setAccount(cached, Boolean(cached?.screenName));
     }
     if (!state.result) setStatus(t(state.lang, "hint"));
   } catch {
@@ -686,11 +698,21 @@ async function startScan() {
     state.tab = "notBack";
     renderResult();
     $("bar").style.width = "100%";
-    const official = scanned.counts.followersOfficial || 0;
-    const listed = scanned.counts.followers || 0;
-    if (official && Math.abs(official - listed) >= 3) {
+    const followingOfficial = scanned.counts.followingOfficial || 0;
+    const followersOfficial = scanned.counts.followersOfficial || 0;
+    const followingListed = scanned.counts.following || 0;
+    const followersListed = scanned.counts.followers || 0;
+    if (
+      (followingOfficial && Math.abs(followingOfficial - followingListed) >= 1) ||
+      (followersOfficial && Math.abs(followersOfficial - followersListed) >= 1)
+    ) {
       setStatus(
-        `${t(state.lang, "done")} · ${t(state.lang, "notBack")} ${scanned.counts.notBack} · ${tf(state.lang, "countGap", { listed, official })}`
+        `${t(state.lang, "done")} · ${t(state.lang, "notBack")} ${scanned.counts.notBack} · ${tf(state.lang, "countGap", {
+          followingOfficial,
+          followingListed,
+          followersOfficial,
+          followersListed,
+        })}`
       );
     } else {
       setStatus(`${t(state.lang, "done")} · ${t(state.lang, "notBack")} ${scanned.counts.notBack}`);
