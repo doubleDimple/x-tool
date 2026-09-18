@@ -63,17 +63,9 @@ body {
 .kicker {
   margin: 0;
   font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: 0.22em;
-  color: var(--acid-dim);
-}
-h1 {
-  margin: 0;
-  font-family: var(--display);
-  font-size: 28px;
-  font-weight: 600;
-  letter-spacing: -0.03em;
-  line-height: 1;
+  font-size: 18px;
+  letter-spacing: 0.18em;
+  color: var(--ink);
 }
 
 .lede {
@@ -132,6 +124,13 @@ button {
 .ghost.small { font-size: 11px; padding: 6px 10px; }
 .ghost:hover { border-color: var(--acid-dim); }
 .ghost.danger { color: var(--coral); }
+.danger-fill {
+  background: var(--coral);
+  color: #fff8f5;
+  font-weight: 700;
+  padding: 10px 16px;
+  border-radius: 999px;
+}
 
 .status {
   min-height: 1.3em;
@@ -191,6 +190,20 @@ button {
 }
 .toolbar input:focus { border-color: var(--acid-dim); }
 .exports { display: flex; flex-wrap: wrap; gap: 6px; }
+.batch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.check {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 12px;
+}
+.check input { accent-color: var(--acid); }
 
 .list {
   flex: 1;
@@ -204,16 +217,16 @@ button {
 
 .card {
   display: grid;
-  grid-template-columns: 36px 1fr auto;
+  grid-template-columns: 18px 36px 1fr auto;
   gap: 10px;
   align-items: start;
   padding: 10px;
   background: var(--bg-2);
   border: 1px solid var(--line);
   border-radius: 14px;
-  text-decoration: none;
   color: inherit;
 }
+.card.plain { grid-template-columns: 36px 1fr auto; }
 .card:hover { border-color: #4a4e38; }
 .card img, .ph {
   width: 36px;
@@ -221,6 +234,15 @@ button {
   border-radius: 50%;
   background: #2a2d20;
 }
+.card .pick { margin-top: 10px; accent-color: var(--acid); }
+.card .profile {
+  display: block;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+.card .profile:hover .name { color: var(--acid); }
+.card .actions { display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
 .card .name { font-weight: 650; font-size: 13px; }
 .card .bio {
   margin: 3px 0 0;
@@ -249,6 +271,32 @@ footer {
   font-family: var(--mono);
   padding-top: 6px;
 }
+
+.modal {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 7, 4, 0.72);
+  display: grid;
+  place-items: end center;
+  padding: 16px;
+  z-index: 20;
+}
+.modal[hidden] { display: none; }
+.sheet {
+  width: min(100%, 360px);
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 16px;
+  box-shadow: var(--shadow);
+}
+.sheet h2 {
+  margin: 0 0 8px;
+  font-family: var(--display);
+  font-size: 22px;
+}
+.sheet p { margin: 0 0 14px; color: var(--muted); }
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
 ::-webkit-scrollbar { width: 8px; }
 ::-webkit-scrollbar-thumb { background: #323526; border-radius: 99px; }

@@ -11,10 +11,7 @@
       <header class="mast">
         <div class="brand">
           <span class="mark" aria-hidden="true"></span>
-          <div>
-            <p class="kicker">X-TOOL</p>
-            <h1 data-i18n="title">关系雷达</h1>
-          </div>
+          <p class="kicker">X-TOOL</p>
         </div>
         <button id="langBtn" class="ghost" type="button">EN</button>
       </header>
@@ -23,7 +20,7 @@
 
       <section id="account" class="account">
         <div class="avatar-fallback" id="avatarWrap">
-          <img id="avatar" alt="" hidden />
+          <img id="avatar" alt="" referrerpolicy="no-referrer" hidden />
         </div>
         <div class="who">
           <strong id="displayName">—</strong>
@@ -49,9 +46,18 @@
         <button class="stat on" data-tab="notBack"><b id="cNotBack">0</b><span data-i18n="notBack">未回关</span></button>
         <button class="stat" data-tab="fansOnly"><b id="cFansOnly">0</b><span data-i18n="fansOnly">单向粉</span></button>
       </section>
+      <p id="countNote" class="status" hidden></p>
 
       <div id="toolbar" class="toolbar" hidden>
         <input id="search" type="search" autocomplete="off" />
+        <div id="batchBar" class="batch" hidden>
+          <label class="check">
+            <input id="selectAll" type="checkbox" />
+            <span data-i18n="selectAll">全选可见</span>
+          </label>
+          <span id="selectedCount" class="mono">0</span>
+          <button id="unfollowBtn" class="ghost small danger" type="button" data-i18n="unfollowSelected">取关选中</button>
+        </div>
         <div class="exports">
           <button id="csvBtn" class="ghost small" type="button" data-i18n="exportCsv">导出 CSV</button>
           <button id="jsonBtn" class="ghost small" type="button" data-i18n="exportJson">导出 JSON</button>
@@ -67,6 +73,17 @@
         <span data-i18n="privacy">本地处理 · 不上传</span>
         <span id="stamp"></span>
       </footer>
+    </div>
+
+    <div id="modal" class="modal" hidden>
+      <div class="sheet" role="dialog" aria-modal="true">
+        <h2 id="modalTitle" data-i18n="confirmTitle">确认取关</h2>
+        <p id="modalText"></p>
+        <div class="modal-actions">
+          <button id="modalCancel" class="ghost" type="button" data-i18n="confirmCancel">取消</button>
+          <button id="modalOk" class="danger-fill" type="button" data-i18n="confirmOk">确认取关</button>
+        </div>
+      </div>
     </div>
     <script type="module" src="panel.js"></script>
   </body>

@@ -2,7 +2,9 @@
   if (window.__xtoolHook) return;
   window.__xtoolHook = true;
 
-  const GRAPHQL_RE = /\/i\/api\/graphql\/([A-Za-z0-9_-]+)\/(Following|Followers|UserByScreenName|VerifiedFollowers)\b/;
+  const GRAPHQL_RE = /\/i\/api\/graphql\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_]+)\b/;
+  const KEEP_OP =
+    /^(Following|Followers|UserByScreenName|VerifiedFollowers)$|Monetization|Eligibility|Reward|Creator|Impression|Analytic|Insight|Organic|Premium|Studio|Qualified/i;
   const state = {
     authorization: "",
     queryIds: {},
@@ -25,6 +27,7 @@
     const match = String(url).match(GRAPHQL_RE);
     if (!match) return;
     const [, queryId, operation] = match;
+    if (!KEEP_OP.test(operation)) return;
     const name = operation === "VerifiedFollowers" ? "Followers" : operation;
     let changed = false;
     if (state.queryIds[name] !== queryId) {
@@ -49,6 +52,15 @@
     return nativeSet.apply(this, arguments);
   };
 
+  const emitCreator = (url, json) => {
+    const match = String(url || "").match(GRAPHQL_RE);
+    if (!match || !KEEP_OP.test(match[2])) return;
+    if (!/Monetization|Eligibility|Reward|Creator|Impression|Analytic|Insight|Organic|Premium|Studio|Qualified/i.test(match[2])) {
+      return;
+    }
+    window.postMessage({ __xtool: "CREATOR_GQL", operation: match[2], json }, "*");
+  };
+
   const nativeFetch = window.fetch;
   window.fetch = function fetch(input, init) {
     const url = typeof input === "string" ? input : input?.url;
@@ -58,7 +70,17 @@
       const value = typeof hdrs.get === "function" ? hdrs.get("authorization") : hdrs.authorization || hdrs.Authorization;
       if (value) captureAuth(value);
     }
-    return nativeFetch.apply(this, arguments);
+    const pending = nativeFetch.apply(this, arguments);
+    pending
+      .then((resp) => {
+        resp
+          .clone()
+          .json()
+          .then((json) => emitCreator(url, json))
+          .catch(() => {});
+      })
+      .catch(() => {});
+    return pending;
   };
 
   const nativeOpen = XMLHttpRequest.prototype.open;
@@ -78,8 +100,14 @@
     if (event.source !== window) return;
     if (event.data?.__xtool === "REQUEST_CAPTURE") emit();
     if (event.data?.__xtool === "FETCH") {
-      const { id, url, headers } = event.data;
-      nativeFetch(url, { method: "GET", headers: headers || {}, credentials: "include" })
+      const { id, url, headers, method, body } = event.data;
+      const init = {
+        method: method || "GET",
+        headers: headers || {},
+        credentials: "include",
+      };
+      if (body != null) init.body = body;
+      nativeFetch(url, init)
         .then(async (res) => {
           const text = await res.text();
           window.postMessage({ __xtool: "FETCH_RESULT", id, ok: res.ok, status: res.status, text }, "*");
