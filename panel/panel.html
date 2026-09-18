@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>X-Tool</title>
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="mast">
+        <div class="brand">
+          <span class="mark" aria-hidden="true"></span>
+          <div>
+            <p class="kicker">X-TOOL</p>
+            <h1 data-i18n="title">关系雷达</h1>
+          </div>
+        </div>
+        <button id="langBtn" class="ghost" type="button">EN</button>
+      </header>
+
+      <p class="lede" data-i18n="subtitle">找出你关注了、但没有回关的人</p>
+
+      <section id="account" class="account">
+        <div class="avatar-fallback" id="avatarWrap">
+          <img id="avatar" alt="" hidden />
+        </div>
+        <div class="who">
+          <strong id="displayName">—</strong>
+          <span id="handle" class="mono">未登录</span>
+        </div>
+        <button id="openX" class="ghost small" type="button" data-i18n="openX">打开 X</button>
+      </section>
+
+      <section class="controls">
+        <button id="startBtn" class="primary" type="button" data-i18n="start">开始扫描</button>
+        <button id="stopBtn" class="ghost" type="button" hidden data-i18n="stop">停止</button>
+      </section>
+
+      <p id="status" class="status"></p>
+      <div id="progressWrap" class="progress" hidden>
+        <div id="bar" class="bar"></div>
+      </div>
+
+      <section id="stats" class="stats" hidden>
+        <button class="stat" data-tab="following"><b id="cFollowing">0</b><span data-i18n="following">关注</span></button>
+        <button class="stat" data-tab="followers"><b id="cFollowers">0</b><span data-i18n="followers">粉丝</span></button>
+        <button class="stat" data-tab="mutual"><b id="cMutual">0</b><span data-i18n="mutual">互关</span></button>
+        <button class="stat on" data-tab="notBack"><b id="cNotBack">0</b><span data-i18n="notBack">未回关</span></button>
+        <button class="stat" data-tab="fansOnly"><b id="cFansOnly">0</b><span data-i18n="fansOnly">单向粉</span></button>
+      </section>
+
+      <div id="toolbar" class="toolbar" hidden>
+        <input id="search" type="search" autocomplete="off" />
+        <div class="exports">
+          <button id="csvBtn" class="ghost small" type="button" data-i18n="exportCsv">导出 CSV</button>
+          <button id="jsonBtn" class="ghost small" type="button" data-i18n="exportJson">导出 JSON</button>
+          <button id="clearBtn" class="ghost small danger" type="button" data-i18n="clear">清空结果</button>
+        </div>
+      </div>
+
+      <section id="list" class="list">
+        <p class="empty" data-i18n="empty">还没有结果。登录 X 后点「开始扫描」。</p>
+      </section>
+
+      <footer>
+        <span data-i18n="privacy">本地处理 · 不上传</span>
+        <span id="stamp"></span>
+      </footer>
+    </div>
+    <script type="module" src="panel.js"></script>
+  </body>
+</html>
