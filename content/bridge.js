@@ -163,6 +163,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (message?.type === "PAGE_FETCH") {
+    if (window !== window.top) return false;
     const id = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const timer = setTimeout(() => {
       window.removeEventListener("message", onMsg);

@@ -313,7 +313,7 @@ async function openPanelWindow() {
   const { panelBounds } = await chrome.storage.local.get("panelBounds");
   const create = {
     url: chrome.runtime.getURL("panel/panel.html"),
-    type: "normal",
+    type: "popup",
     focused: true,
     width: Math.max(320, panelBounds?.width || 380),
     height: Math.max(480, panelBounds?.height || 640),

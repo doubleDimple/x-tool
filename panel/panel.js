@@ -10,6 +10,7 @@ import {
   pullRewards,
   withDeltas,
 } from "../lib/rewards.js";
+import { openInBrowser } from "../lib/tabs.js";
 
 const $ = (id) => document.getElementById(id);
 const UNFOLLOW_TABS = new Set(["notBack", "mutual", "following"]);
@@ -203,7 +204,7 @@ function renderList() {
           : ""
       }
       ${user.avatar ? `<img src="${escapeHtml(user.avatar)}" alt="" referrerpolicy="no-referrer">` : `<div class="ph"></div>`}
-      <a class="profile" href="https://x.com/${encodeURIComponent(user.screenName || user.id)}" target="_blank" rel="noreferrer">
+      <a class="profile" href="${escapeHtml(profileHref(user))}" rel="noreferrer">
         <div class="name">${escapeHtml(user.name || handle)}</div>
         <div class="mono">@${escapeHtml(handle)}</div>
         ${user.bio ? `<p class="bio">${escapeHtml(user.bio)}</p>` : ""}
@@ -232,6 +233,10 @@ function renderList() {
   }
   box.replaceChildren(frag);
   renderBatch();
+}
+
+function profileHref(user) {
+  return user.screenName ? `https://x.com/${user.screenName}` : `https://x.com/i/user/${user.id}`;
 }
 
 function escapeHtml(value) {
@@ -642,13 +647,13 @@ $("langBtn").addEventListener("click", async () => {
 });
 
 $("openX").addEventListener("click", () => {
-  chrome.tabs.create({ url: "https://x.com/home" });
+  openInBrowser("https://x.com/home");
 });
 
 $("viewRelation").addEventListener("click", () => setView("relation"));
 $("viewCreator").addEventListener("click", () => setView("creator"));
 $("openStudioBtn").addEventListener("click", () => {
-  chrome.tabs.create({ url: REWARDS_PAGE });
+  openInBrowser(REWARDS_PAGE, { reuseXTab: false });
 });
 $("autoRewards").addEventListener("change", async () => {
   const enabled = $("autoRewards").checked;
@@ -756,7 +761,7 @@ $("list").addEventListener("change", (event) => {
   renderBatch();
 });
 
-$("list").addEventListener("click", (event) => {
+function onListClick(event) {
   const unfollowBtn = event.target.closest("[data-unfollow]");
   if (unfollowBtn) {
     const user = currentRows().find((item) => item.id === unfollowBtn.dataset.unfollow);
@@ -767,7 +772,21 @@ $("list").addEventListener("click", (event) => {
   if (followBtn) {
     const user = currentRows().find((item) => item.id === followBtn.dataset.follow);
     if (user) followUsers([user]);
+    return;
   }
+  const profile = event.target.closest("a.profile");
+  if (profile?.href) {
+    event.preventDefault();
+    openInBrowser(profile.href);
+  }
+}
+
+$("list").addEventListener("click", onListClick);
+$("list").addEventListener("auxclick", (event) => {
+  const profile = event.target.closest("a.profile");
+  if (!profile?.href) return;
+  event.preventDefault();
+  openInBrowser(profile.href);
 });
 
 $("csvBtn").addEventListener("click", () => {
