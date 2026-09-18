@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="system">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
@@ -13,7 +13,10 @@
           <span class="mark" aria-hidden="true"></span>
           <p class="kicker">X-TOOL</p>
         </div>
-        <button id="langBtn" class="ghost" type="button">EN</button>
+        <div class="mast-actions">
+          <button id="themeBtn" class="ghost" type="button">系统</button>
+          <button id="langBtn" class="ghost" type="button">EN</button>
+        </div>
       </header>
 
       <p class="lede" data-i18n="subtitle">找出你关注了、但没有回关的人</p>
@@ -44,6 +47,16 @@
       <div id="progressWrap" class="progress" hidden>
         <div id="bar" class="bar"></div>
       </div>
+      <section id="actionProgress" class="action-progress" hidden>
+        <div class="ap-nums">
+          <div><b id="apTotal">0</b><span data-i18n="apSelected">已选</span></div>
+          <div><b id="apDone">0</b><span data-i18n="apDone">已完成</span></div>
+          <div><b id="apLeft">0</b><span data-i18n="apLeft">剩余</span></div>
+          <div><b id="apFail">0</b><span data-i18n="apFail">失败</span></div>
+        </div>
+        <div class="progress thick"><div id="apBar"></div></div>
+        <p id="apNow" class="status"></p>
+      </section>
 
       <section id="stats" class="stats" hidden>
         <button class="stat" data-tab="following"><b id="cFollowing">0</b><span data-i18n="following">关注</span></button>

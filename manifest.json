@@ -36,7 +36,7 @@
       "all_frames": true
     }
   ],
-  "permissions": ["cookies", "storage", "tabs", "alarms", "windows"],
+  "permissions": ["cookies", "storage", "tabs", "alarms", "windows", "offscreen"],
   "host_permissions": [
     "https://x.com/*",
     "https://twitter.com/*",

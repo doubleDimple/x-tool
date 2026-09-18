@@ -5,6 +5,39 @@ import {
   pullRewards,
   syncRewardAlarm,
 } from "./lib/rewards.js";
+import { applyFollowed, applyUnfollowed, persistable } from "./lib/graph.js";
+
+const JOB_KEY = "friendshipJob";
+
+async function ensureOffscreen() {
+  const contexts = await chrome.runtime.getContexts?.({ contextTypes: ["OFFSCREEN_DOCUMENT"] });
+  if (contexts?.length) return;
+  await chrome.offscreen.createDocument({
+    url: "offscreen.html",
+    reasons: ["DOM_SCRAPING"],
+    justification: "Keep follow and unfollow running after the window is closed",
+  });
+}
+
+async function closeOffscreen() {
+  try {
+    await chrome.offscreen.closeDocument();
+  } catch {
+    /* none */
+  }
+}
+
+async function saveJob(job) {
+  await chrome.storage.local.set({ [JOB_KEY]: job });
+}
+
+async function patchResult(kind, okUsers) {
+  if (!okUsers?.length) return;
+  const { lastResult } = await chrome.storage.local.get("lastResult");
+  if (!lastResult) return;
+  const next = kind === "follow" ? applyFollowed(lastResult, okUsers) : applyUnfollowed(lastResult, okUsers);
+  await chrome.storage.local.set({ lastResult: persistable(next) });
+}
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "CAPTURE" && message.payload) {
@@ -31,6 +64,80 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       sendResponse({ ok: true, when });
     });
     return true;
+  }
+  if (message?.type === "START_FRIENDSHIP") {
+    ensureOffscreen()
+      .then(async () => {
+        const job = {
+          kind: message.kind,
+          status: "running",
+          total: message.users.length,
+          doneCount: 0,
+          failCount: 0,
+          ok: [],
+          fail: [],
+          user: message.users[0] || null,
+        };
+        await saveJob(job);
+        await new Promise((r) => setTimeout(r, 150));
+        chrome.runtime.sendMessage({ type: "OFFSCREEN_START", kind: message.kind, users: message.users }).catch(() => {});
+        sendResponse({ ok: true });
+      })
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message?.type === "STOP_FRIENDSHIP") {
+    chrome.runtime.sendMessage({ type: "OFFSCREEN_STOP" }).catch(() => {});
+    chrome.storage.local.get(JOB_KEY).then(({ [JOB_KEY]: job }) => {
+      if (job) saveJob({ ...job, status: "stopped" });
+    });
+    sendResponse({ ok: true });
+    return false;
+  }
+  if (message?.type === "GET_FRIENDSHIP_JOB") {
+    chrome.storage.local.get(JOB_KEY).then(({ [JOB_KEY]: job }) => sendResponse({ job: job || null }));
+    return true;
+  }
+  if (message?.type === "FRIENDSHIP_PROGRESS") {
+    chrome.storage.local.get(JOB_KEY).then(({ [JOB_KEY]: job }) => {
+      if (!job) return;
+      saveJob({
+        ...job,
+        status: "running",
+        ...message.progress,
+        ok: job.ok,
+        fail: job.fail,
+      });
+    });
+    return false;
+  }
+  if (message?.type === "FRIENDSHIP_DONE") {
+    (async () => {
+      const { [JOB_KEY]: job } = await chrome.storage.local.get(JOB_KEY);
+      const result = message.result || { ok: [], fail: [] };
+      if (result.ok?.length) {
+        await patchResult(message.kind || job?.kind, result.ok);
+        if ((message.kind || job?.kind) === "unfollow") {
+          const day = new Date().toISOString().slice(0, 10);
+          const { unfollowDay } = await chrome.storage.local.get("unfollowDay");
+          const count = (unfollowDay?.day === day ? unfollowDay.count : 0) + result.ok.length;
+          await chrome.storage.local.set({ unfollowDay: { day, count } });
+        }
+      }
+      await saveJob({
+        ...(job || {}),
+        kind: message.kind || job?.kind,
+        status: message.error?.name === "AbortError" ? "stopped" : "done",
+        doneCount: result.ok?.length || 0,
+        failCount: result.fail?.length || 0,
+        ok: result.ok || [],
+        fail: result.fail || [],
+        error: message.error || null,
+        total: job?.total || (result.ok?.length || 0) + (result.fail?.length || 0),
+      });
+      await closeOffscreen();
+    })();
+    return false;
   }
   if (message?.type === "GET_REWARD_AUTO") {
     chrome.storage.local.get("rewardAuto").then(async ({ rewardAuto }) => {
