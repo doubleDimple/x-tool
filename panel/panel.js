@@ -440,9 +440,13 @@ function renderCreator() {
   }
   $("impMeta").textContent = bits.join(" · ");
 
-  setGate("premium", latest?.premium);
-  setGate("age", latest?.ageOk);
-  setGate("followers", latest?.verifiedFollowers == null ? null : latest.verifiedFollowers >= 500);
+  const fromStudio = latest?.source === "studio" || latest?.source === "gql";
+  setGate("premium", latest?.premium ?? (fromStudio ? true : null));
+  setGate("age", latest?.ageOk ?? (fromStudio ? true : null));
+  setGate(
+    "followers",
+    latest?.verifiedFollowers != null ? latest.verifiedFollowers >= 500 : fromStudio ? true : null
+  );
   setGate("impressions", impressions == null ? null : impressions >= IMPRESSION_GOAL);
 
   const chart = $("chart");

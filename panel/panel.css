@@ -102,15 +102,50 @@ body {
   font-size: 12px;
 }
 .gate i {
-  width: 16px;
-  height: 16px;
-  margin-top: 2px;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
   border-radius: 50%;
   border: 1.5px solid var(--line);
-  display: block;
+  display: grid;
+  place-items: center;
+  font-style: normal;
+  position: relative;
 }
-.gate.ok i { background: var(--ok); border-color: var(--ok); }
-.gate.no i { background: transparent; border-color: var(--coral); }
+.gate.ok i {
+  background: #22c55e;
+  border-color: #22c55e;
+}
+.gate.ok i::after {
+  content: "";
+  width: 4px;
+  height: 8px;
+  border-right: 2px solid #0b0c0a;
+  border-bottom: 2px solid #0b0c0a;
+  transform: rotate(40deg) translate(-0.5px, -1px);
+}
+.gate.no i {
+  background: transparent;
+  border-color: var(--coral);
+}
+.gate.no i::after {
+  content: "";
+  position: absolute;
+  width: 9px;
+  height: 1.5px;
+  background: var(--coral);
+  transform: rotate(45deg);
+  border-radius: 2px;
+}
+.gate.no i::before {
+  content: "";
+  position: absolute;
+  width: 9px;
+  height: 1.5px;
+  background: var(--coral);
+  transform: rotate(-45deg);
+  border-radius: 2px;
+}
 .gate b { display: block; font-family: var(--display); font-size: 22px; margin-top: 4px; }
 .meter {
   height: 4px;
