@@ -1,16 +1,32 @@
-window.addEventListener("message", (event) => {
+function handleWindowMessage(event) {
   if (event.source !== window) return;
+  if (!chrome?.runtime?.id) {
+    window.removeEventListener("message", handleWindowMessage);
+    return;
+  }
+
   if (event.data?.__xtool === "CAPTURE") {
-    chrome.runtime.sendMessage({ type: "CAPTURE", payload: event.data.payload }).catch(() => {});
+    try {
+      chrome.runtime.sendMessage({ type: "CAPTURE", payload: event.data.payload })?.catch?.(() => {});
+    } catch {
+      window.removeEventListener("message", handleWindowMessage);
+    }
   }
+
   if (event.data?.__xtool === "CREATOR_GQL") {
-    chrome.runtime.sendMessage({
-      type: "CREATOR_GQL",
-      operation: event.data.operation,
-      json: event.data.json,
-    }).catch(() => {});
+    try {
+      chrome.runtime.sendMessage({
+        type: "CREATOR_GQL",
+        operation: event.data.operation,
+        json: event.data.json,
+      })?.catch?.(() => {});
+    } catch {
+      window.removeEventListener("message", handleWindowMessage);
+    }
   }
-});
+}
+
+window.addEventListener("message", handleWindowMessage);
 
 function readViewerFromDom() {
   const img =

@@ -218,14 +218,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       return chrome.storage.local.set({ captured: next });
     });
     sendResponse({ ok: true });
-    return true;
+    return false;
   }
   if (message?.type === "CREATOR_GQL" && message.json) {
     chrome.storage.local.set({
       creatorGql: { operation: message.operation, json: message.json, at: Date.now() },
     });
     sendResponse({ ok: true });
-    return true;
+    return false;
   }
   if (message?.type === "SET_REWARD_AUTO") {
     chrome.storage.local.set({ rewardAuto: Boolean(message.enabled) }).then(async () => {
