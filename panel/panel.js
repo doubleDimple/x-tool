@@ -423,7 +423,11 @@ async function startFriendshipJob(kind, users) {
 }
 
 async function unfollowUsers(users) {
-  if (!users.length || busy()) return;
+  if (!users.length) return;
+  if (busy()) {
+    setStatus(t(state.lang, "jobBusy"), "warn");
+    return;
+  }
   if (!canUnfollowTab()) {
     setStatus(t(state.lang, "cannotUnfollow"), "warn");
     return;
@@ -676,7 +680,11 @@ $("pullRewardsBtn").addEventListener("click", async () => {
 $("startBtn").addEventListener("click", startScan);
 $("stopBtn").addEventListener("click", () => {
   state.abort?.abort();
-  chrome.runtime.sendMessage({ type: "STOP_FRIENDSHIP" }).catch(() => {});
+  if (state.jobRunning) {
+    chrome.runtime.sendMessage({ type: "STOP_FRIENDSHIP" }).catch(() => {});
+    bindJobUi(false);
+    setStatus(t(state.lang, "stopped"), "warn");
+  }
 });
 
 chrome.runtime.onMessage.addListener((message) => {
@@ -707,7 +715,11 @@ $("selectAll").addEventListener("change", () => {
 });
 
 async function followUsers(users) {
-  if (!users.length || busy()) return;
+  if (!users.length) return;
+  if (busy()) {
+    setStatus(t(state.lang, "jobBusy"), "warn");
+    return;
+  }
   const targets = users.filter(canFollowUser);
   if (!targets.length) {
     setStatus(t(state.lang, "cannotFollow"), "warn");
@@ -746,13 +758,13 @@ $("list").addEventListener("change", (event) => {
 
 $("list").addEventListener("click", (event) => {
   const unfollowBtn = event.target.closest("[data-unfollow]");
-  if (unfollowBtn && !busy()) {
+  if (unfollowBtn) {
     const user = currentRows().find((item) => item.id === unfollowBtn.dataset.unfollow);
     if (user) unfollowUsers([user]);
     return;
   }
   const followBtn = event.target.closest("[data-follow]");
-  if (followBtn && !busy()) {
+  if (followBtn) {
     const user = currentRows().find((item) => item.id === followBtn.dataset.follow);
     if (user) followUsers([user]);
   }

@@ -7,17 +7,49 @@ import {
 } from "./lib/rewards.js";
 import { applyFollowed, applyUnfollowed, persistable } from "./lib/graph.js";
 import { jobDoneText, jobSuccessText, notifyCurrentPage } from "./lib/notify.js";
+import { runFollow, runUnfollow } from "./lib/scan.js";
 
 const JOB_KEY = "friendshipJob";
+let offscreenReadyWait = null;
+let swAbort = null;
+let launching = false;
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function hasOffscreen() {
+  try {
+    const contexts = await chrome.runtime.getContexts?.({ contextTypes: ["OFFSCREEN_DOCUMENT"] });
+    return Boolean(contexts?.length);
+  } catch {
+    return false;
+  }
+}
 
 async function ensureOffscreen() {
-  const contexts = await chrome.runtime.getContexts?.({ contextTypes: ["OFFSCREEN_DOCUMENT"] });
-  if (contexts?.length) return;
-  await chrome.offscreen.createDocument({
-    url: "offscreen.html",
-    reasons: ["DOM_SCRAPING"],
-    justification: "Keep follow and unfollow running after the window is closed",
-  });
+  if (await hasOffscreen()) return true;
+  offscreenReadyWait = Promise.withResolvers ? Promise.withResolvers() : null;
+  let ready = offscreenReadyWait?.promise;
+  if (!offscreenReadyWait) {
+    let resolve;
+    ready = new Promise((r) => {
+      resolve = r;
+    });
+    offscreenReadyWait = { resolve, promise: ready };
+  }
+  try {
+    await chrome.offscreen.createDocument({
+      url: "offscreen.html",
+      reasons: ["DOM_SCRAPING"],
+      justification: "Keep follow and unfollow running after the window is closed",
+    });
+  } catch (error) {
+    if (!/already|single/i.test(String(error.message))) throw error;
+  }
+  await Promise.race([ready, wait(2500)]);
+  offscreenReadyWait = null;
+  return hasOffscreen();
 }
 
 async function closeOffscreen() {
@@ -30,6 +62,125 @@ async function closeOffscreen() {
 
 async function saveJob(job) {
   await chrome.storage.local.set({ [JOB_KEY]: job });
+}
+
+async function applyProgress(kind, progress) {
+  const { [JOB_KEY]: job } = await chrome.storage.local.get(JOB_KEY);
+  if (!job) return;
+  const prevDone = job.doneCount || 0;
+  const nextDone = progress?.doneCount || 0;
+  await saveJob({
+    ...job,
+    status: "running",
+    ...progress,
+    ok: job.ok,
+    fail: job.fail,
+  });
+  if (nextDone > prevDone && progress?.user) {
+    notifyCurrentPage(jobSuccessText(kind || job.kind, progress), {
+      title: (kind || job.kind) === "follow" ? "X-Tool 关注" : "X-Tool 取关",
+    }).catch(() => {});
+  }
+}
+
+async function finishJob(kind, payload, { broadcast = true } = {}) {
+  const { [JOB_KEY]: job } = await chrome.storage.local.get(JOB_KEY);
+  const result = payload.result || { ok: [], fail: [] };
+  if (result.ok?.length) {
+    await patchResult(kind || job?.kind, result.ok);
+    if ((kind || job?.kind) === "unfollow") {
+      const day = new Date().toISOString().slice(0, 10);
+      const { unfollowDay } = await chrome.storage.local.get("unfollowDay");
+      const count = (unfollowDay?.day === day ? unfollowDay.count : 0) + result.ok.length;
+      await chrome.storage.local.set({ unfollowDay: { day, count } });
+    }
+  }
+  await saveJob({
+    ...(job || {}),
+    kind: kind || job?.kind,
+    status: payload.error?.name === "AbortError" ? "stopped" : "done",
+    doneCount: result.ok?.length || 0,
+    failCount: result.fail?.length || 0,
+    ok: result.ok || [],
+    fail: result.fail || [],
+    error: payload.error || null,
+    total: job?.total || (result.ok?.length || 0) + (result.fail?.length || 0),
+  });
+  await closeOffscreen();
+  notifyCurrentPage(jobDoneText(kind || job?.kind, result, payload.error), {
+    title: (kind || job?.kind) === "follow" ? "X-Tool 关注" : "X-Tool 取关",
+  }).catch(() => {});
+  if (broadcast) {
+    chrome.runtime.sendMessage({
+      type: "FRIENDSHIP_DONE",
+      kind: kind || job?.kind,
+      result,
+      error: payload.error,
+    }).catch(() => {});
+  }
+}
+
+async function runJobInSw(kind, users) {
+  swAbort?.abort();
+  swAbort = new AbortController();
+  const run = kind === "follow" ? runFollow : runUnfollow;
+  try {
+    const result = await run(users, {
+      signal: swAbort.signal,
+      onProgress: (progress) => {
+        applyProgress(kind, progress);
+        chrome.runtime.sendMessage({ type: "FRIENDSHIP_PROGRESS", kind, progress }).catch(() => {});
+      },
+    });
+    await finishJob(kind, { result });
+  } catch (error) {
+    await finishJob(kind, {
+      result: { ok: [], fail: [] },
+      error: { name: error.name, message: error.message, code: error.code },
+    });
+  }
+}
+
+function newJob(kind, users) {
+  return {
+    kind,
+    status: "running",
+    total: users.length,
+    doneCount: 0,
+    failCount: 0,
+    ok: [],
+    fail: [],
+    user: users[0] || null,
+  };
+}
+
+async function sendOffscreenStart(kind, users) {
+  try {
+    await chrome.runtime.sendMessage({ type: "OFFSCREEN_START", kind, users });
+    return true;
+  } catch (error) {
+    return !/Receiving end does not exist/i.test(String(error?.message || error));
+  }
+}
+
+async function launchFriendship(kind, users) {
+  launching = true;
+  try {
+    const ready = await ensureOffscreen();
+    if (ready) {
+      let started = await sendOffscreenStart(kind, users);
+      if (!started) {
+        await wait(200);
+        started = await sendOffscreenStart(kind, users);
+      }
+      if (started) return;
+    }
+    await runJobInSw(kind, users);
+  } catch {
+    await runJobInSw(kind, users);
+  } finally {
+    launching = false;
+  }
 }
 
 async function patchResult(kind, okUsers) {
@@ -66,89 +217,49 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     });
     return true;
   }
+  if (message?.type === "OFFSCREEN_READY") {
+    offscreenReadyWait?.resolve?.(true);
+    sendResponse({ ok: true });
+    return false;
+  }
   if (message?.type === "START_FRIENDSHIP") {
-    ensureOffscreen()
-      .then(async () => {
-        const job = {
-          kind: message.kind,
-          status: "running",
-          total: message.users.length,
-          doneCount: 0,
-          failCount: 0,
-          ok: [],
-          fail: [],
-          user: message.users[0] || null,
-        };
-        await saveJob(job);
-        await new Promise((r) => setTimeout(r, 150));
-        chrome.runtime.sendMessage({ type: "OFFSCREEN_START", kind: message.kind, users: message.users }).catch(() => {});
+    const { kind, users } = message;
+    saveJob(newJob(kind, users))
+      .then(() => {
         sendResponse({ ok: true });
+        setTimeout(() => {
+          launchFriendship(kind, users).catch(() => {});
+        }, 0);
       })
       .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }
   if (message?.type === "STOP_FRIENDSHIP") {
+    swAbort?.abort();
     chrome.runtime.sendMessage({ type: "OFFSCREEN_STOP" }).catch(() => {});
-    chrome.storage.local.get(JOB_KEY).then(({ [JOB_KEY]: job }) => {
-      if (job) saveJob({ ...job, status: "stopped" });
+    chrome.storage.local.get(JOB_KEY).then(async ({ [JOB_KEY]: job }) => {
+      if (job) await saveJob({ ...job, status: "stopped" });
+      await closeOffscreen();
     });
     sendResponse({ ok: true });
     return false;
   }
   if (message?.type === "GET_FRIENDSHIP_JOB") {
-    chrome.storage.local.get(JOB_KEY).then(({ [JOB_KEY]: job }) => sendResponse({ job: job || null }));
+    chrome.storage.local.get(JOB_KEY).then(async ({ [JOB_KEY]: job }) => {
+      if (job?.status === "running" && !launching && !(await hasOffscreen()) && !swAbort) {
+        job.status = "stopped";
+        await saveJob(job);
+      }
+      sendResponse({ job: job || null });
+    });
     return true;
   }
   if (message?.type === "FRIENDSHIP_PROGRESS") {
-    chrome.storage.local.get(JOB_KEY).then(({ [JOB_KEY]: job }) => {
-      if (!job) return;
-      const prevDone = job.doneCount || 0;
-      const nextDone = message.progress?.doneCount || 0;
-      saveJob({
-        ...job,
-        status: "running",
-        ...message.progress,
-        ok: job.ok,
-        fail: job.fail,
-      });
-      if (nextDone > prevDone && message.progress?.user) {
-        notifyCurrentPage(jobSuccessText(message.kind || job.kind, message.progress), {
-          title: (message.kind || job.kind) === "follow" ? "X-Tool 关注" : "X-Tool 取关",
-        }).catch(() => {});
-      }
-    });
+    applyProgress(message.kind, message.progress || {}).catch(() => {});
     return false;
   }
   if (message?.type === "FRIENDSHIP_DONE") {
-    (async () => {
-      const { [JOB_KEY]: job } = await chrome.storage.local.get(JOB_KEY);
-      const result = message.result || { ok: [], fail: [] };
-      if (result.ok?.length) {
-        await patchResult(message.kind || job?.kind, result.ok);
-        if ((message.kind || job?.kind) === "unfollow") {
-          const day = new Date().toISOString().slice(0, 10);
-          const { unfollowDay } = await chrome.storage.local.get("unfollowDay");
-          const count = (unfollowDay?.day === day ? unfollowDay.count : 0) + result.ok.length;
-          await chrome.storage.local.set({ unfollowDay: { day, count } });
-        }
-      }
-      await saveJob({
-        ...(job || {}),
-        kind: message.kind || job?.kind,
-        status: message.error?.name === "AbortError" ? "stopped" : "done",
-        doneCount: result.ok?.length || 0,
-        failCount: result.fail?.length || 0,
-        ok: result.ok || [],
-        fail: result.fail || [],
-        error: message.error || null,
-        total: job?.total || (result.ok?.length || 0) + (result.fail?.length || 0),
-      });
-      await closeOffscreen();
-      const kind = message.kind || job?.kind;
-      notifyCurrentPage(jobDoneText(kind, result, message.error), {
-        title: kind === "follow" ? "X-Tool 关注" : "X-Tool 取关",
-      }).catch(() => {});
-    })();
+    finishJob(message.kind, { result: message.result, error: message.error }, { broadcast: false }).catch(() => {});
     return false;
   }
   if (message?.type === "GET_REWARD_AUTO") {
@@ -202,7 +313,7 @@ async function openPanelWindow() {
   const { panelBounds } = await chrome.storage.local.get("panelBounds");
   const create = {
     url: chrome.runtime.getURL("panel/panel.html"),
-    type: "popup",
+    type: "normal",
     focused: true,
     width: Math.max(320, panelBounds?.width || 380),
     height: Math.max(480, panelBounds?.height || 640),
