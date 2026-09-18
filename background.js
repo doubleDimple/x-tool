@@ -325,44 +325,93 @@ async function bootSchedule() {
   }
 }
 
+if (chrome.sidePanel?.setPanelBehavior) {
+  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
+}
+
 let panelWindowId = null;
 
+async function findExistingPanelTab() {
+  try {
+    const panelUrl = chrome.runtime.getURL("panel/panel.html");
+    const tabs = await chrome.tabs.query({ url: panelUrl });
+    return tabs[0] || null;
+  } catch {
+    return null;
+  }
+}
+
 async function openPanelWindow() {
-  if (panelWindowId != null) {
+  const existingTab = await findExistingPanelTab();
+  if (existingTab) {
+    panelWindowId = existingTab.windowId;
     try {
-      await chrome.windows.update(panelWindowId, { focused: true });
+      await chrome.windows.update(existingTab.windowId, { focused: true });
+      await chrome.tabs.update(existingTab.id, { active: true });
       return;
     } catch {
       panelWindowId = null;
     }
   }
+
+  let createLeft;
+  let createTop;
   const { panelBounds } = await chrome.storage.local.get("panelBounds");
+  const width = Math.max(320, panelBounds?.width || 380);
+  const height = Math.max(480, panelBounds?.height || 640);
+
+  try {
+    const currentWin = await chrome.windows.getLastFocused();
+    if (currentWin && Number.isFinite(currentWin.left) && Number.isFinite(currentWin.width)) {
+      createLeft = Math.max(0, currentWin.left + currentWin.width - width);
+      createTop = Math.max(0, currentWin.top || 0);
+    }
+  } catch {}
+
   const create = {
     url: chrome.runtime.getURL("panel/panel.html"),
     type: "popup",
     focused: true,
-    width: Math.max(320, panelBounds?.width || 380),
-    height: Math.max(480, panelBounds?.height || 640),
+    width,
+    height,
   };
-  if (Number.isFinite(panelBounds?.left)) create.left = panelBounds.left;
-  if (Number.isFinite(panelBounds?.top)) create.top = panelBounds.top;
+  if (Number.isFinite(panelBounds?.left)) {
+    create.left = panelBounds.left;
+  } else if (createLeft !== undefined) {
+    create.left = createLeft;
+  }
+  if (Number.isFinite(panelBounds?.top)) {
+    create.top = panelBounds.top;
+  } else if (createTop !== undefined) {
+    create.top = createTop;
+  }
+
   const win = await chrome.windows.create(create);
   panelWindowId = win.id ?? null;
 }
 
 async function closePanelWindow() {
-  if (panelWindowId == null) return;
-  const id = panelWindowId;
-  panelWindowId = null;
-  try {
-    await chrome.windows.remove(id);
-  } catch {
-    /* already gone */
+  if (panelWindowId != null) {
+    const id = panelWindowId;
+    panelWindowId = null;
+    try {
+      await chrome.windows.remove(id);
+    } catch {}
+  }
+  const existingTab = await findExistingPanelTab();
+  if (existingTab?.windowId) {
+    try {
+      await chrome.windows.remove(existingTab.windowId);
+    } catch {}
   }
 }
 
-chrome.action.onClicked.addListener(() => {
-  openPanelWindow();
+chrome.action.onClicked.addListener((tab) => {
+  if (chrome.sidePanel?.open && tab?.windowId) {
+    chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => openPanelWindow());
+  } else {
+    openPanelWindow();
+  }
 });
 
 chrome.windows.onRemoved.addListener((id) => {

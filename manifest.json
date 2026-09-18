@@ -36,7 +36,10 @@
       "all_frames": true
     }
   ],
-  "permissions": ["cookies", "storage", "tabs", "alarms", "windows", "offscreen", "scripting", "notifications"],
+  "permissions": ["cookies", "storage", "tabs", "alarms", "windows", "offscreen", "scripting", "notifications", "sidePanel"],
+  "side_panel": {
+    "default_path": "panel/panel.html"
+  },
   "host_permissions": [
     "https://x.com/*",
     "https://twitter.com/*",
