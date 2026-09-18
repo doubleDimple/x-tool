@@ -255,6 +255,7 @@ button {
   padding: 8px 12px;
 }
 .ghost.small { font-size: 11px; padding: 6px 10px; }
+.ghost.follow { color: #16180c; background: var(--acid); border-color: var(--acid); }
 .ghost:hover { border-color: var(--acid-dim); }
 .ghost.danger { color: var(--coral); }
 .danger-fill {

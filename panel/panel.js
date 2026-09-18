@@ -1,6 +1,6 @@
 import { detectLang, t, tf } from "../lib/i18n.js";
 import { getAuth, resolveMe } from "../lib/api.js";
-import { runScan, runUnfollow } from "../lib/scan.js";
+import { runScan, runUnfollow, runFollow } from "../lib/scan.js";
 import {
   IMPRESSION_GOAL,
   REWARDS_PAGE,
@@ -12,6 +12,7 @@ import {
 
 const $ = (id) => document.getElementById(id);
 const UNFOLLOW_TABS = new Set(["notBack", "mutual", "following"]);
+const FOLLOW_TABS = new Set(["fansOnly", "followers"]);
 
 const state = {
   lang: "zh",
@@ -19,6 +20,7 @@ const state = {
   result: null,
   scanning: false,
   unfollowing: false,
+  followingAct: false,
   abort: null,
   selected: new Set(),
   todayCount: 0,
@@ -51,8 +53,20 @@ function canUnfollowTab() {
   return UNFOLLOW_TABS.has(state.tab);
 }
 
+function canFollowTab() {
+  return FOLLOW_TABS.has(state.tab);
+}
+
+function followingIds() {
+  return new Set((state.result?.following || []).map((u) => u.id));
+}
+
+function canFollowUser(user) {
+  return Boolean(user?.id) && !followingIds().has(user.id);
+}
+
 function busy() {
-  return state.scanning || state.unfollowing;
+  return state.scanning || state.unfollowing || state.followingAct;
 }
 
 function setAccount(me, loggedIn) {
@@ -163,8 +177,10 @@ function renderStats() {
 }
 
 function renderBatch() {
-  const show = Boolean(state.result) && canUnfollowTab();
+  const show = Boolean(state.result) && (canUnfollowTab() || canFollowTab());
   $("batchBar").hidden = !show;
+  $("unfollowBtn").hidden = !canUnfollowTab();
+  $("followBtn").hidden = !canFollowTab();
   if (!show) {
     $("selectAll").checked = false;
     return;
@@ -175,6 +191,7 @@ function renderBatch() {
   $("selectAll").checked = visible.length > 0 && selectedVisible === visible.length;
   $("selectAll").indeterminate = selectedVisible > 0 && selectedVisible < visible.length;
   $("unfollowBtn").disabled = busy() || state.selected.size === 0;
+  $("followBtn").disabled = busy() || state.selected.size === 0;
 }
 
 function renderList() {
@@ -190,16 +207,18 @@ function renderList() {
     renderBatch();
     return;
   }
-  const allowUnfollow = canUnfollowTab();
+  const allowPick = canUnfollowTab() || canFollowTab();
   const frag = document.createDocumentFragment();
   for (const user of rows) {
     const handle = user.screenName || user.id;
     const card = document.createElement("article");
-    card.className = allowUnfollow ? "card" : "card plain";
+    card.className = allowPick ? "card" : "card plain";
     card.dataset.id = user.id;
+    const follow = canFollowUser(user);
+    const unfollow = !follow && canUnfollowTab();
     card.innerHTML = `
       ${
-        allowUnfollow
+        allowPick
           ? `<input class="pick" type="checkbox" data-pick="${escapeHtml(user.id)}" ${
               state.selected.has(user.id) ? "checked" : ""
             }>`
@@ -214,10 +233,18 @@ function renderList() {
       <div class="actions">
         ${user.verified ? `<span class="badge">${t(state.lang, "verified")}</span>` : ""}
         ${
-          allowUnfollow
+          unfollow
             ? `<button class="ghost small danger" type="button" data-unfollow="${escapeHtml(user.id)}">${t(
                 state.lang,
                 "unfollowOne"
+              )}</button>`
+            : ""
+        }
+        ${
+          follow
+            ? `<button class="ghost small follow" type="button" data-follow="${escapeHtml(user.id)}">${t(
+                state.lang,
+                "followOne"
               )}</button>`
             : ""
         }
@@ -289,17 +316,19 @@ function csvCell(value) {
   return `"${text}"`;
 }
 
-function confirmUnfollow(users) {
+function confirmAction(users, kind) {
+  const follow = kind === "follow";
   return new Promise((resolve) => {
     const modal = $("modal");
-    $("modalTitle").textContent = t(state.lang, "confirmTitle");
+    $("modalTitle").textContent = t(state.lang, follow ? "confirmFollowTitle" : "confirmTitle");
+    $("modalOk").textContent = t(state.lang, follow ? "confirmFollowOk" : "confirmOk");
     if (users.length === 1) {
-      $("modalText").textContent = tf(state.lang, "confirmOne", {
+      $("modalText").textContent = tf(state.lang, follow ? "confirmFollowOne" : "confirmOne", {
         handle: users[0].screenName || users[0].id,
       });
     } else {
       const minutes = Math.max(1, Math.ceil((users.length * 12 + Math.floor(users.length / 9) * 40) / 60));
-      let text = tf(state.lang, "confirmMany", { count: users.length, minutes });
+      let text = tf(state.lang, follow ? "confirmFollowMany" : "confirmMany", { count: users.length, minutes });
       if (users.length > 50) text += `\n${t(state.lang, "confirmBig")}`;
       $("modalText").textContent = text;
     }
@@ -314,6 +343,21 @@ function confirmUnfollow(users) {
     const onCancel = () => finish(false);
     $("modalOk").addEventListener("click", onOk);
     $("modalCancel").addEventListener("click", onCancel);
+  });
+}
+
+function applyFollowed(result, followed) {
+  const ids = new Set(followed.map((u) => u.id));
+  const keep = (arr) => (arr || []).filter((u) => !ids.has(u.id));
+  const moved = (result.fansOnly || []).filter((u) => ids.has(u.id));
+  const extra = followed.filter((u) => !moved.some((m) => m.id === u.id));
+  return withDerived({
+    ...result,
+    fansOnly: keep(result.fansOnly),
+    mutual: [...(result.mutual || []), ...moved, ...extra],
+    following: [...(result.following || []), ...followed],
+    notBack: result.notBack,
+    followers: result.followers,
   });
 }
 
@@ -349,7 +393,7 @@ async function unfollowUsers(users) {
     setStatus(t(state.lang, "cannotUnfollow"), "warn");
     return;
   }
-  const ok = await confirmUnfollow(users);
+  const ok = await confirmAction(users, "unfollow");
   if (!ok) return;
 
   state.unfollowing = true;
@@ -649,6 +693,61 @@ $("selectAll").addEventListener("change", () => {
   renderList();
 });
 
+async function followUsers(users) {
+  if (!users.length || busy()) return;
+  const targets = users.filter(canFollowUser);
+  if (!targets.length) {
+    setStatus(t(state.lang, "cannotFollow"), "warn");
+    return;
+  }
+  const ok = await confirmAction(targets, "follow");
+  if (!ok) return;
+
+  state.followingAct = true;
+  state.abort = new AbortController();
+  $("startBtn").hidden = true;
+  $("stopBtn").hidden = false;
+  $("progressWrap").hidden = false;
+  $("followBtn").disabled = true;
+
+  try {
+    const result = await runFollow(targets, {
+      signal: state.abort.signal,
+      onProgress: (p) => {
+        const label = p.user?.screenName || p.user?.id || "";
+        const step = `${p.index + 1}/${p.total}`;
+        if (p.waiting === "look") setStatus(`${t(state.lang, "followLook")} ${step} @${label}`);
+        else if (p.waiting === "between") setStatus(`${t(state.lang, "followBetween")} ${step}`);
+        else if (p.waiting === "rest") setStatus(t(state.lang, "followRest"), "warn");
+        else if (p.rateLimited) setStatus(t(state.lang, "rateLimited"), "warn");
+        else setStatus(`${t(state.lang, "followingAction")} ${step} @${label}`);
+        setProgress(p.index, p.total);
+      },
+    });
+    if (result.ok.length) {
+      await saveResult(applyFollowed(state.result, result.ok));
+      for (const user of result.ok) state.selected.delete(user.id);
+    }
+    renderResult();
+    $("bar").style.width = "100%";
+    const failBit = result.fail.length ? ` · ${t(state.lang, "unfollowFail")} ${result.fail.length}` : "";
+    setStatus(`${t(state.lang, "followDone")} ${result.ok.length}${failBit}`, result.fail.length ? "warn" : "");
+  } catch (error) {
+    if (error?.name === "AbortError") setStatus(t(state.lang, "stopped"), "warn");
+    else if (error?.code === "NOT_AUTHENTICATED") setStatus(t(state.lang, "needLogin"), "warn");
+    else setStatus(`${t(state.lang, "error")}: ${error.message || error}`, "err");
+  } finally {
+    state.followingAct = false;
+    state.abort = null;
+    $("startBtn").hidden = false;
+    $("stopBtn").hidden = true;
+    renderBatch();
+    setTimeout(() => {
+      if (!busy()) $("progressWrap").hidden = true;
+    }, 700);
+  }
+}
+
 $("unfollowBtn").addEventListener("click", () => {
   const users = currentRows().filter((u) => state.selected.has(u.id));
   if (!users.length) {
@@ -656,6 +755,14 @@ $("unfollowBtn").addEventListener("click", () => {
     return;
   }
   unfollowUsers(users);
+});
+$("followBtn").addEventListener("click", () => {
+  const users = currentRows().filter((u) => state.selected.has(u.id) && canFollowUser(u));
+  if (!users.length) {
+    setStatus(t(state.lang, "noSelection"), "warn");
+    return;
+  }
+  followUsers(users);
 });
 
 $("list").addEventListener("change", (event) => {
@@ -668,11 +775,17 @@ $("list").addEventListener("change", (event) => {
 });
 
 $("list").addEventListener("click", (event) => {
-  const btn = event.target.closest("[data-unfollow]");
-  if (!btn || busy()) return;
-  const id = btn.dataset.unfollow;
-  const user = currentRows().find((item) => item.id === id);
-  if (user) unfollowUsers([user]);
+  const unfollowBtn = event.target.closest("[data-unfollow]");
+  if (unfollowBtn && !busy()) {
+    const user = currentRows().find((item) => item.id === unfollowBtn.dataset.unfollow);
+    if (user) unfollowUsers([user]);
+    return;
+  }
+  const followBtn = event.target.closest("[data-follow]");
+  if (followBtn && !busy()) {
+    const user = currentRows().find((item) => item.id === followBtn.dataset.follow);
+    if (user) followUsers([user]);
+  }
 });
 
 $("csvBtn").addEventListener("click", () => {
