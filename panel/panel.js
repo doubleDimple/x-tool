@@ -1,6 +1,14 @@
 import { detectLang, t, tf } from "../lib/i18n.js";
 import { getAuth, resolveMe } from "../lib/api.js";
 import { runScan, runUnfollow } from "../lib/scan.js";
+import {
+  IMPRESSION_GOAL,
+  STUDIO_URLS,
+  formatCompact,
+  loadHistory,
+  pullRewards,
+  withDeltas,
+} from "../lib/rewards.js";
 
 const $ = (id) => document.getElementById(id);
 const UNFOLLOW_TABS = new Set(["notBack", "mutual", "following"]);
@@ -14,6 +22,8 @@ const state = {
   abort: null,
   selected: new Set(),
   todayCount: 0,
+  view: "relation",
+  rewardHistory: [],
 };
 
 function applyI18n() {
@@ -23,6 +33,7 @@ function applyI18n() {
   });
   $("langBtn").textContent = t(state.lang, "langToggle");
   $("search").placeholder = t(state.lang, "search");
+  if (state.view === "creator") renderCreator();
 }
 
 function setStatus(text, kind = "") {
@@ -386,13 +397,82 @@ async function unfollowUsers(users) {
   }
 }
 
+function setView(view) {
+  state.view = view;
+  $("relationView").hidden = view !== "relation";
+  $("creatorView").hidden = view !== "creator";
+  $("viewRelation").classList.toggle("on", view === "relation");
+  $("viewCreator").classList.toggle("on", view === "creator");
+  document.querySelector(".lede").hidden = view !== "relation";
+  if (view === "creator") renderCreator();
+}
+
+function setGate(name, ok) {
+  const el = document.querySelector(`[data-gate="${name}"]`);
+  if (!el) return;
+  el.classList.toggle("ok", ok === true);
+  el.classList.toggle("no", ok === false);
+}
+
+function signedDelta(n) {
+  if (n == null) return "";
+  const abs = formatCompact(Math.abs(n));
+  return n >= 0 ? `+${abs}` : `-${abs}`;
+}
+
+function renderCreator() {
+  const rows = withDeltas(state.rewardHistory);
+  const latest = rows[rows.length - 1];
+  const impressions = latest?.impressions90d;
+  $("impNow").textContent = impressions == null ? "—" : formatCompact(impressions);
+  const pct = impressions == null ? 0 : Math.max(1, Math.min(100, (impressions / IMPRESSION_GOAL) * 100));
+  $("impBar").style.width = `${impressions == null ? 0 : pct}%`;
+
+  const bits = [];
+  if (impressions != null) {
+    bits.push(tf(state.lang, "creatorGoal", { remain: formatCompact(Math.max(0, IMPRESSION_GOAL - impressions)) }));
+  }
+  if (latest?.delta != null) bits.push(tf(state.lang, "creatorDelta", { delta: signedDelta(latest.delta) }));
+  const recent = rows.filter((r) => r.delta != null).slice(-7);
+  const avg = recent.length ? recent.reduce((s, r) => s + Math.max(0, r.delta), 0) / recent.length : 0;
+  if (impressions != null && avg > 0 && impressions < IMPRESSION_GOAL) {
+    bits.push(tf(state.lang, "etaDays", { days: Math.ceil((IMPRESSION_GOAL - impressions) / avg) }));
+  }
+  $("impMeta").textContent = bits.join(" · ");
+
+  setGate("premium", latest?.premium);
+  setGate("age", latest?.ageOk);
+  setGate("followers", latest?.verifiedFollowers == null ? null : latest.verifiedFollowers >= 500);
+  setGate("impressions", impressions == null ? null : impressions >= IMPRESSION_GOAL);
+
+  const chart = $("chart");
+  const empty = $("chartEmpty");
+  const points = rows.filter((r) => r.impressions90d != null).slice(-30);
+  if (!points.length) {
+    chart.innerHTML = "";
+    empty.hidden = false;
+    return;
+  }
+  empty.hidden = true;
+  const max = Math.max(...points.map((p) => p.impressions90d), 1);
+  chart.innerHTML = points
+    .map((p) => {
+      const h = Math.max(4, Math.round((p.impressions90d / max) * 100));
+      const tip = `${p.date} · ${formatCompact(p.impressions90d)}${p.delta != null ? ` (${signedDelta(p.delta)})` : ""}`;
+      return `<div class="chart-col" title="${tip}"><div class="chart-fill" style="height:${h}%"></div><span>${p.date.slice(5)}</span></div>`;
+    })
+    .join("");
+}
+
 async function hydrate() {
   const stored = await chrome.storage.local.get(["lang", "lastResult"]);
   state.lang = stored.lang || detectLang();
   state.result = withDerived(stored.lastResult || null);
+  state.rewardHistory = await loadHistory();
   await loadTodayCount();
   applyI18n();
   renderResult();
+  renderCreator();
 
   try {
     const auth = await getAuth();
@@ -502,6 +582,32 @@ $("langBtn").addEventListener("click", async () => {
 
 $("openX").addEventListener("click", () => {
   chrome.tabs.create({ url: "https://x.com/home" });
+});
+
+$("viewRelation").addEventListener("click", () => setView("relation"));
+$("viewCreator").addEventListener("click", () => setView("creator"));
+$("openStudioBtn").addEventListener("click", () => {
+  chrome.tabs.create({ url: STUDIO_URLS[0] });
+});
+$("pullRewardsBtn").addEventListener("click", async () => {
+  $("creatorStatus").textContent = t(state.lang, "phaseAuth");
+  $("creatorStatus").className = "status";
+  try {
+    const data = await pullRewards();
+    state.rewardHistory = await loadHistory();
+    renderCreator();
+    if (data?.impressions90d == null) {
+      $("creatorStatus").textContent = t(state.lang, "creatorNeedPage");
+      $("creatorStatus").className = "status warn";
+    } else {
+      $("creatorStatus").textContent = tf(state.lang, "creatorSaved", {
+        value: formatCompact(data.impressions90d),
+      });
+    }
+  } catch (error) {
+    $("creatorStatus").textContent = `${t(state.lang, "error")}: ${error.message || error}`;
+    $("creatorStatus").className = "status err";
+  }
 });
 
 $("startBtn").addEventListener("click", startScan);

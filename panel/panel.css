@@ -74,6 +74,92 @@ body {
   max-width: 34ch;
 }
 
+.views { display: flex; gap: 6px; }
+.view {
+  background: var(--bg-2);
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12px;
+}
+.view.on {
+  color: #16180c;
+  background: var(--acid);
+  border-color: var(--acid);
+}
+
+.gates { display: flex; flex-direction: column; gap: 8px; }
+.gate {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 8px;
+  align-items: start;
+  padding: 10px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  font-size: 12px;
+}
+.gate i {
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line);
+  display: block;
+}
+.gate.ok i { background: var(--ok); border-color: var(--ok); }
+.gate.no i { background: transparent; border-color: var(--coral); }
+.gate b { display: block; font-family: var(--display); font-size: 22px; margin-top: 4px; }
+.meter {
+  height: 4px;
+  background: var(--bg-3);
+  border-radius: 99px;
+  margin: 8px 0 4px;
+  overflow: hidden;
+}
+#impBar { height: 100%; width: 0; background: var(--acid); }
+
+.chart-wrap { margin-top: 4px; }
+.chart-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 8px;
+}
+.chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 120px;
+  padding: 8px 2px 0;
+  overflow-x: auto;
+}
+.chart-col {
+  flex: 1;
+  min-width: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  height: 100%;
+  gap: 4px;
+}
+.chart-fill {
+  width: 100%;
+  max-width: 18px;
+  background: var(--acid);
+  border-radius: 4px 4px 0 0;
+  min-height: 2px;
+}
+.chart-col span {
+  font-family: var(--mono);
+  font-size: 8px;
+  color: var(--muted);
+  writing-mode: horizontal-tb;
+}
+
 .account {
   display: grid;
   grid-template-columns: 40px 1fr auto;

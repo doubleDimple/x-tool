@@ -71,15 +71,18 @@
       if (value) captureAuth(value);
     }
     const pending = nativeFetch.apply(this, arguments);
-    pending
-      .then((resp) => {
-        resp
-          .clone()
-          .json()
-          .then((json) => emitCreator(url, json))
-          .catch(() => {});
-      })
-      .catch(() => {});
+    const match = String(url || "").match(GRAPHQL_RE);
+    if (match && /Monetization|Eligibility|Reward|Creator|Impression|Analytic|Insight|Organic|Premium|Studio|Qualified/i.test(match[2])) {
+      pending
+        .then((resp) => {
+          resp
+            .clone()
+            .json()
+            .then((json) => emitCreator(url, json))
+            .catch(() => {});
+        })
+        .catch(() => {});
+    }
     return pending;
   };
 

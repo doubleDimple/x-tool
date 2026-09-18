@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "X-Tool",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "扫描 X / Twitter 关注与粉丝，找出未回关和单向关注。数据只保存在本地。",
   "minimum_chrome_version": "116",
   "icons": {

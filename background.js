@@ -16,5 +16,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     sendResponse({ ok: true });
     return true;
   }
+  if (message?.type === "CREATOR_GQL" && message.json) {
+    chrome.storage.local.set({
+      creatorGql: { operation: message.operation, json: message.json, at: Date.now() },
+    });
+    sendResponse({ ok: true });
+    return true;
+  }
   return false;
 });

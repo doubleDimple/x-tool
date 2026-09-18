@@ -18,6 +18,11 @@
 
       <p class="lede" data-i18n="subtitle">找出你关注了、但没有回关的人</p>
 
+      <nav class="views">
+        <button id="viewRelation" class="view on" type="button" data-i18n="viewRelation">关系</button>
+        <button id="viewCreator" class="view" type="button" data-i18n="viewCreator">创作</button>
+      </nav>
+
       <section id="account" class="account">
         <div class="avatar-fallback" id="avatarWrap">
           <img id="avatar" alt="" referrerpolicy="no-referrer" hidden />
@@ -29,6 +34,7 @@
         <button id="openX" class="ghost small" type="button" data-i18n="openX">打开 X</button>
       </section>
 
+      <div id="relationView">
       <section class="controls">
         <button id="startBtn" class="primary" type="button" data-i18n="start">开始扫描</button>
         <button id="stopBtn" class="ghost" type="button" hidden data-i18n="stop">停止</button>
@@ -68,6 +74,38 @@
       <section id="list" class="list">
         <p class="empty" data-i18n="empty">还没有结果。登录 X 后点「开始扫描」。</p>
       </section>
+      </div>
+
+      <div id="creatorView" hidden>
+        <p class="lede" data-i18n="creatorHint">读取创作者工作室里「原创内容奖励」的门槛。曝光按天记在本地，用来看 90 天滚动值怎么涨。</p>
+        <section class="controls">
+          <button id="pullRewardsBtn" class="primary" type="button" data-i18n="pullRewards">读取今日指标</button>
+          <button id="openStudioBtn" class="ghost" type="button" data-i18n="openStudio">打开工作室</button>
+        </section>
+        <p id="creatorStatus" class="status"></p>
+        <section class="gates">
+          <div class="gate" data-gate="premium"><i></i><span data-i18n="gatePremium">订阅 Premium / Premium+ / Business</span></div>
+          <div class="gate" data-gate="age"><i></i><span data-i18n="gateAge">年满 18 岁</span></div>
+          <div class="gate" data-gate="followers"><i></i><span data-i18n="gateFollowers">至少 500 名已验证粉丝</span></div>
+          <div class="gate" data-gate="impressions">
+            <i></i>
+            <div>
+              <span data-i18n="gateImpressions">过去 90 天已验证首页时间线曝光</span>
+              <b id="impNow">—</b>
+              <div class="meter"><div id="impBar"></div></div>
+              <small id="impMeta" class="mono"></small>
+            </div>
+          </div>
+        </section>
+        <section class="chart-wrap">
+          <div class="chart-head">
+            <strong data-i18n="chartTitle">每日曝光</strong>
+            <span id="chartMode" class="mono" data-i18n="chartRolling">90 天滚动值</span>
+          </div>
+          <div id="chart" class="chart"></div>
+          <p id="chartEmpty" class="empty" data-i18n="chartEmpty">还没有记录。打开创作者工作室后点「读取今日指标」。</p>
+        </section>
+      </div>
 
       <footer>
         <span data-i18n="privacy">本地处理 · 不上传</span>
