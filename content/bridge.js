@@ -65,13 +65,19 @@ function isThresholdNumber(n) {
   return n === 500_000 || n === 50_000 || n === 500 || n === 90 || n === 18 || n === 50 || n === 0;
 }
 
-function readShortCompact(el) {
-  const t = (el.textContent || "").replace(/\s+/g, "").trim();
-  if (!t || t.length > 12) return null;
-  if (!/[Kk千MB万]/.test(t) && !/^\d+(\.\d+)?$/.test(t)) return null;
-  const n = parseCompact(t);
-  if (n == null || isThresholdNumber(n) || n >= 500_000) return null;
-  return { n, hasSuffix: /[Kk千MB万]/.test(t), t };
+function bestDisplayK(text) {
+  const matches = [...String(text || "").matchAll(/(\d+(?:\.\d+)?)\s*([KkK])/g)]
+    .map((m) => ({
+      n: parseCompact(m[0]),
+      decimal: String(m[1]).includes("."),
+      raw: m[0],
+    }))
+    .filter((x) => x.n && !isThresholdNumber(x.n) && x.n < 500_000);
+  if (!matches.length) return null;
+  const withDecimal = matches.filter((x) => x.decimal);
+  const pool = withDecimal.length ? withDecimal : matches;
+  pool.sort((a, b) => b.n - a.n);
+  return pool[0].n;
 }
 
 function findImpressions90d() {
@@ -85,19 +91,16 @@ function findImpressions90d() {
 
   let scope = label;
   for (let depth = 0; depth < 16 && scope; depth += 1, scope = scope.parentElement) {
-    const hits = [];
-    for (const el of scope.querySelectorAll("span, div, p, strong, b, em")) {
-      if (el.contains(label) && el !== label) continue;
-      const hit = readShortCompact(el);
-      if (hit && hit.n >= 1000) hits.push(hit);
+    const bar = scope.querySelector("[role='progressbar'], progress, meter");
+    if (bar) {
+      const fromAria = bestDisplayK(bar.getAttribute("aria-valuetext") || "");
+      if (fromAria) return fromAria;
+      const now = Number(bar.getAttribute("aria-valuenow") || bar.value);
+      const max = Number(bar.getAttribute("aria-valuemax") || bar.max);
+      if (max === 500_000 && now > 0 && now < 500_000) return Math.round(now);
     }
-    const withK = hits.filter((h) => h.hasSuffix && /[KkK]/.test(h.t));
-    if (withK.length) return withK[withK.length - 1].n;
-    const textHits = [...(scope.innerText || "").matchAll(/(\d+(?:\.\d+)?)\s*[KkK]/g)]
-      .map((m) => parseCompact(m[0]))
-      .filter((n) => n && !isThresholdNumber(n) && n < 500_000);
-    if (textHits.length) return textHits[textHits.length - 1];
-    if (hits.length && depth >= 3) return hits[hits.length - 1].n;
+    const fromText = bestDisplayK(scope.innerText || "");
+    if (fromText) return fromText;
   }
   return null;
 }

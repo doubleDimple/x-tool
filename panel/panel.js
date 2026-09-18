@@ -3,7 +3,7 @@ import { getAuth, resolveMe } from "../lib/api.js";
 import { runScan, runUnfollow } from "../lib/scan.js";
 import {
   IMPRESSION_GOAL,
-  STUDIO_URLS,
+  REWARDS_PAGE,
   formatCompact,
   loadHistory,
   pullRewards,
@@ -33,6 +33,7 @@ function applyI18n() {
   });
   $("langBtn").textContent = t(state.lang, "langToggle");
   $("search").placeholder = t(state.lang, "search");
+  $("autoHint").textContent = t(state.lang, $("autoRewards").checked ? "autoOn" : "autoOff");
   if (state.view === "creator") renderCreator();
 }
 
@@ -477,6 +478,9 @@ async function hydrate() {
   applyI18n();
   renderResult();
   renderCreator();
+  const { rewardAuto } = await chrome.storage.local.get("rewardAuto");
+  $("autoRewards").checked = Boolean(rewardAuto);
+  $("autoHint").textContent = t(state.lang, rewardAuto ? "autoOn" : "autoOff");
 
   try {
     const auth = await getAuth();
@@ -591,7 +595,12 @@ $("openX").addEventListener("click", () => {
 $("viewRelation").addEventListener("click", () => setView("relation"));
 $("viewCreator").addEventListener("click", () => setView("creator"));
 $("openStudioBtn").addEventListener("click", () => {
-  chrome.tabs.create({ url: STUDIO_URLS[0] });
+  chrome.tabs.create({ url: REWARDS_PAGE });
+});
+$("autoRewards").addEventListener("change", async () => {
+  const enabled = $("autoRewards").checked;
+  await chrome.runtime.sendMessage({ type: "SET_REWARD_AUTO", enabled });
+  $("autoHint").textContent = t(state.lang, enabled ? "autoOn" : "autoOff");
 });
 $("pullRewardsBtn").addEventListener("click", async () => {
   $("creatorStatus").textContent = t(state.lang, "phaseAuth");
@@ -600,17 +609,18 @@ $("pullRewardsBtn").addEventListener("click", async () => {
     const data = await pullRewards();
     state.rewardHistory = await loadHistory();
     renderCreator();
-    if (data?.impressions90d == null) {
-      $("creatorStatus").textContent = t(state.lang, "creatorNeedPage");
-      $("creatorStatus").className = "status warn";
-    } else {
+    if (data?.impressions90d != null) {
       $("creatorStatus").textContent = tf(state.lang, "creatorSaved", {
         value: formatCompact(data.impressions90d),
       });
+      $("creatorStatus").className = "status";
+    } else {
+      $("creatorStatus").textContent = "";
+      $("creatorStatus").className = "status";
     }
-  } catch (error) {
-    $("creatorStatus").textContent = `${t(state.lang, "error")}: ${error.message || error}`;
-    $("creatorStatus").className = "status err";
+  } catch {
+    $("creatorStatus").textContent = "";
+    $("creatorStatus").className = "status";
   }
 });
 
