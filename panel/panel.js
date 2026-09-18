@@ -181,6 +181,8 @@ function renderBatch() {
   $("batchBar").hidden = !show;
   $("unfollowBtn").hidden = !canUnfollowTab();
   $("followBtn").hidden = !canFollowTab();
+  $("paceHint").hidden = !canFollowTab() && !canUnfollowTab();
+  $("paceHint").textContent = t(state.lang, "followPace");
   if (!show) {
     $("selectAll").checked = false;
     return;
