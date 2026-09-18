@@ -5,8 +5,9 @@ import {
   pullRewards,
   syncRewardAlarm,
 } from "./lib/rewards.js";
-import { applyFollowed, applyUnfollowed, persistable } from "./lib/graph.js";
+import { applyFollowed, applyUnfollowed, packUsers, persistable } from "./lib/graph.js";
 import { jobDoneText, jobSuccessText, notifyCurrentPage } from "./lib/notify.js";
+import { getAuth, getCaptured } from "./lib/api.js";
 import { runFollow, runUnfollow } from "./lib/scan.js";
 
 const JOB_KEY = "friendshipJob";
@@ -69,13 +70,17 @@ async function applyProgress(kind, progress) {
   if (!job) return;
   const prevDone = job.doneCount || 0;
   const nextDone = progress?.doneCount || 0;
-  await saveJob({
+  const next = {
     ...job,
     status: "running",
-    ...progress,
     ok: job.ok,
     fail: job.fail,
-  });
+  };
+  for (const [key, value] of Object.entries(progress || {})) {
+    if (value !== undefined) next[key] = value;
+  }
+  if (!next.total && job.total) next.total = job.total;
+  await saveJob(next);
   if (nextDone > prevDone && progress?.user) {
     notifyCurrentPage(jobSuccessText(kind || job.kind, progress), {
       title: (kind || job.kind) === "follow" ? "X-Tool 关注" : "X-Tool 取关",
@@ -85,6 +90,8 @@ async function applyProgress(kind, progress) {
 
 async function finishJob(kind, payload, { broadcast = true } = {}) {
   const { [JOB_KEY]: job } = await chrome.storage.local.get(JOB_KEY);
+  if (payload?.token && job?.token && payload.token !== job.token) return;
+  if (payload?.error?.name === "AbortError" && launching) return;
   const result = payload.result || { ok: [], fail: [] };
   if (result.ok?.length) {
     await patchResult(kind || job?.kind, result.ok);
@@ -104,7 +111,8 @@ async function finishJob(kind, payload, { broadcast = true } = {}) {
     ok: result.ok || [],
     fail: result.fail || [],
     error: payload.error || null,
-    total: job?.total || (result.ok?.length || 0) + (result.fail?.length || 0),
+    total: job?.total || payload.total || (result.ok?.length || 0) + (result.fail?.length || 0),
+    token: job?.token || payload.token || null,
   });
   await closeOffscreen();
   notifyCurrentPage(jobDoneText(kind || job?.kind, result, payload.error), {
@@ -116,6 +124,8 @@ async function finishJob(kind, payload, { broadcast = true } = {}) {
       kind: kind || job?.kind,
       result,
       error: payload.error,
+      total: job?.total || payload.total,
+      token: job?.token || payload.token,
     }).catch(() => {});
   }
 }
@@ -132,31 +142,37 @@ async function runJobInSw(kind, users) {
         chrome.runtime.sendMessage({ type: "FRIENDSHIP_PROGRESS", kind, progress }).catch(() => {});
       },
     });
-    await finishJob(kind, { result });
+    await finishJob(kind, { result, total: users.length });
   } catch (error) {
     await finishJob(kind, {
       result: { ok: [], fail: [] },
       error: { name: error.name, message: error.message, code: error.code },
+      total: users.length,
     });
   }
 }
 
 function newJob(kind, users) {
+  const packed = packUsers(users);
   return {
+    token: `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`,
     kind,
     status: "running",
-    total: users.length,
+    total: packed.length,
     doneCount: 0,
     failCount: 0,
     ok: [],
     fail: [],
-    user: users[0] || null,
+    user: packed[0] || null,
+    users: packed,
   };
 }
 
-async function sendOffscreenStart(kind, users) {
+async function sendOffscreenStart(kind, token, users) {
+  const auth = await getAuth();
+  const captured = await getCaptured();
   try {
-    await chrome.runtime.sendMessage({ type: "OFFSCREEN_START", kind, users });
+    await chrome.runtime.sendMessage({ type: "OFFSCREEN_START", kind, token, users, auth, captured });
     return true;
   } catch (error) {
     return !/Receiving end does not exist/i.test(String(error?.message || error));
@@ -165,19 +181,20 @@ async function sendOffscreenStart(kind, users) {
 
 async function launchFriendship(kind, users) {
   launching = true;
+  const packed = packUsers(users);
   try {
+    if (!packed.length) {
+      await finishJob(kind, { result: { ok: [], fail: [] }, error: { name: "Error", message: "No users to process" } });
+      return;
+    }
     const ready = await ensureOffscreen();
     if (ready) {
-      let started = await sendOffscreenStart(kind, users);
-      if (!started) {
-        await wait(200);
-        started = await sendOffscreenStart(kind, users);
-      }
-      if (started) return;
+      const { [JOB_KEY]: job } = await chrome.storage.local.get(JOB_KEY);
+      if (await sendOffscreenStart(kind, job?.token, packed)) return;
     }
-    await runJobInSw(kind, users);
+    await runJobInSw(kind, packed);
   } catch {
-    await runJobInSw(kind, users);
+    await runJobInSw(kind, packed);
   } finally {
     launching = false;
   }
@@ -217,6 +234,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     });
     return true;
   }
+  if (message?.type === "CLOSE_PANEL") {
+    closePanelWindow().then(() => sendResponse({ ok: true })).catch(() => sendResponse({ ok: false }));
+    return true;
+  }
   if (message?.type === "OFFSCREEN_READY") {
     offscreenReadyWait?.resolve?.(true);
     sendResponse({ ok: true });
@@ -224,11 +245,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message?.type === "START_FRIENDSHIP") {
     const { kind, users } = message;
-    saveJob(newJob(kind, users))
+    const job = newJob(kind, users);
+    saveJob(job)
       .then(() => {
-        sendResponse({ ok: true });
+        sendResponse({ ok: true, total: job.total });
         setTimeout(() => {
-          launchFriendship(kind, users).catch(() => {});
+          launchFriendship(kind, job.users).catch(() => {});
         }, 0);
       })
       .catch((error) => sendResponse({ ok: false, error: error.message }));
@@ -259,7 +281,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
   if (message?.type === "FRIENDSHIP_DONE") {
-    finishJob(message.kind, { result: message.result, error: message.error }, { broadcast: false }).catch(() => {});
+    finishJob(
+      message.kind,
+      { result: message.result, error: message.error, total: message.total, token: message.token },
+      { broadcast: false }
+    ).catch(() => {});
     return false;
   }
   if (message?.type === "GET_REWARD_AUTO") {
@@ -322,6 +348,17 @@ async function openPanelWindow() {
   if (Number.isFinite(panelBounds?.top)) create.top = panelBounds.top;
   const win = await chrome.windows.create(create);
   panelWindowId = win.id ?? null;
+}
+
+async function closePanelWindow() {
+  if (panelWindowId == null) return;
+  const id = panelWindowId;
+  panelWindowId = null;
+  try {
+    await chrome.windows.remove(id);
+  } catch {
+    /* already gone */
+  }
 }
 
 chrome.action.onClicked.addListener(() => {

@@ -16,6 +16,7 @@
         <div class="mast-actions">
           <button id="themeBtn" class="ghost" type="button">系统</button>
           <button id="langBtn" class="ghost" type="button">EN</button>
+          <button id="closePanelBtn" class="ghost small" type="button" data-i18n="closePanel">关闭</button>
         </div>
       </header>
 
@@ -48,6 +49,13 @@
         <div id="bar" class="bar"></div>
       </div>
       <section id="actionProgress" class="action-progress" hidden>
+        <div class="ap-head">
+          <p id="apNow" class="status"></p>
+          <div class="ap-actions">
+            <button id="jobStopBtn" class="ghost small danger" type="button" data-i18n="stopJob">停止任务</button>
+            <button id="jobResetBtn" class="ghost small" type="button" data-i18n="resetJob">重置</button>
+          </div>
+        </div>
         <div class="ap-nums">
           <div><b id="apTotal">0</b><span data-i18n="apSelected">已选</span></div>
           <div><b id="apDone">0</b><span data-i18n="apDone">已完成</span></div>
@@ -55,7 +63,6 @@
           <div><b id="apFail">0</b><span data-i18n="apFail">失败</span></div>
         </div>
         <div class="progress thick"><div id="apBar"></div></div>
-        <p id="apNow" class="status"></p>
       </section>
 
       <section id="stats" class="stats" hidden>

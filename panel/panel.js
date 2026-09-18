@@ -1,7 +1,7 @@
 import { detectLang, t, tf } from "../lib/i18n.js";
 import { getAuth, resolveMe } from "../lib/api.js";
 import { runScan } from "../lib/scan.js";
-import { persistable, withDerived } from "../lib/graph.js";
+import { applyFollowed, applyUnfollowed, packUsers, persistable, withDerived } from "../lib/graph.js";
 import {
   IMPRESSION_GOAL,
   REWARDS_PAGE,
@@ -205,12 +205,14 @@ function renderList() {
       }
       ${user.avatar ? `<img src="${escapeHtml(user.avatar)}" alt="" referrerpolicy="no-referrer">` : `<div class="ph"></div>`}
       <a class="profile" href="${escapeHtml(profileHref(user))}" rel="noreferrer">
-        <div class="name">${escapeHtml(user.name || handle)}</div>
+        <div class="name">
+          <span>${escapeHtml(user.name || handle)}</span>
+          ${user.verified ? `<span class="badge">${t(state.lang, "verified")}</span>` : ""}
+        </div>
         <div class="mono">@${escapeHtml(handle)}</div>
         ${user.bio ? `<p class="bio">${escapeHtml(user.bio)}</p>` : ""}
       </a>
       <div class="actions">
-        ${user.verified ? `<span class="badge">${t(state.lang, "verified")}</span>` : ""}
         ${
           unfollow
             ? `<button class="ghost small danger" type="button" data-unfollow="${escapeHtml(user.id)}">${t(
@@ -262,10 +264,24 @@ function setProgress(loaded, expected) {
   $("bar").style.width = `${pct}%`;
 }
 
+let actionState = { total: 0, doneCount: 0, failCount: 0, index: 0, user: null };
+
+function mergeAction(p = {}) {
+  for (const [key, value] of Object.entries(p)) {
+    if (value !== undefined) actionState[key] = value;
+  }
+  return actionState;
+}
+
+function resetActionState(seed = {}) {
+  actionState = { total: 0, doneCount: 0, failCount: 0, index: 0, user: null, ...seed };
+}
+
 function updateActionProgress(p, line) {
-  const total = p.total || 0;
-  const done = p.doneCount || 0;
-  const fail = p.failCount || 0;
+  const s = mergeAction(p);
+  const total = Number(s.total) || 0;
+  const done = Number(s.doneCount) || 0;
+  const fail = Number(s.failCount) || 0;
   const left = Math.max(0, total - done - fail);
   $("actionProgress").hidden = false;
   $("apTotal").textContent = total;
@@ -278,20 +294,24 @@ function updateActionProgress(p, line) {
 }
 
 function actionLine(p, kind) {
-  const label = p.user?.screenName || p.user?.id || "";
-  const step = `${(p.index || 0) + 1}/${p.total}`;
+  const s = mergeAction(p);
+  const label = s.user?.screenName || s.user?.id || "";
+  const total = Number(s.total) || 0;
+  const step = total ? `${(Number(s.index) || 0) + 1}/${total}` : "";
+  const at = label ? ` @${label}` : "";
+  const bit = [step, at.trim()].filter(Boolean).join(" ");
   if (kind === "follow") {
-    if (p.waiting === "look") return `${t(state.lang, "followLook")} ${step} @${label}`;
-    if (p.waiting === "between") return `${t(state.lang, "followBetween")} ${step}`;
-    if (p.waiting === "rest") return t(state.lang, "followRest");
-    if (p.rateLimited) return t(state.lang, "rateLimited");
-    return `${t(state.lang, "followingAction")} ${step} @${label}`;
+    if (s.waiting === "look") return `${t(state.lang, "followLook")} ${bit}`.trim();
+    if (s.waiting === "between") return `${t(state.lang, "followBetween")} ${step}`.trim();
+    if (s.waiting === "rest") return t(state.lang, "followRest");
+    if (s.rateLimited) return t(state.lang, "rateLimited");
+    return `${t(state.lang, "followingAction")} ${bit}`.trim();
   }
-  if (p.waiting === "look") return `${t(state.lang, "unfollowLook")} ${step} @${label}`;
-  if (p.waiting === "between") return `${t(state.lang, "unfollowBetween")} ${step}`;
-  if (p.waiting === "rest") return t(state.lang, "unfollowRest");
-  if (p.rateLimited) return t(state.lang, "rateLimited");
-  return `${t(state.lang, "unfollowing")} ${step} @${label}`;
+  if (s.waiting === "look") return `${t(state.lang, "unfollowLook")} ${bit}`.trim();
+  if (s.waiting === "between") return `${t(state.lang, "unfollowBetween")} ${step}`.trim();
+  if (s.waiting === "rest") return t(state.lang, "unfollowRest");
+  if (s.rateLimited) return t(state.lang, "rateLimited");
+  return `${t(state.lang, "unfollowing")} ${bit}`.trim();
 }
 
 function download(filename, mime, text) {
@@ -331,41 +351,87 @@ function csvCell(value) {
   return `"${text}"`;
 }
 
-function confirmAction(users, kind) {
-  const follow = kind === "follow";
+function openModal({ title, text, okLabel, cancelLabel, danger }) {
   return new Promise((resolve) => {
     const modal = $("modal");
-    $("modalTitle").textContent = t(state.lang, follow ? "confirmFollowTitle" : "confirmTitle");
-    $("modalOk").textContent = t(state.lang, follow ? "confirmFollowOk" : "confirmOk");
-    if (users.length === 1) {
-      $("modalText").textContent = tf(state.lang, follow ? "confirmFollowOne" : "confirmOne", {
-        handle: users[0].screenName || users[0].id,
-      });
-    } else {
-      const minutes = Math.max(1, Math.ceil((users.length * 5 + Math.floor(users.length / 15) * 14) / 60));
-      let text = tf(state.lang, follow ? "confirmFollowMany" : "confirmMany", { count: users.length, minutes });
-      if (users.length > 50) text += `\n${t(state.lang, "confirmBig")}`;
-      $("modalText").textContent = text;
-    }
+    const okBtn = $("modalOk");
+    const cancelBtn = $("modalCancel");
+    $("modalTitle").textContent = title;
+    $("modalText").textContent = text;
+    okBtn.textContent = okLabel;
+    okBtn.classList.toggle("danger-fill", Boolean(danger));
+    okBtn.classList.toggle("acid-fill", !danger);
+    cancelBtn.hidden = !cancelLabel;
+    if (cancelLabel) cancelBtn.textContent = cancelLabel;
     modal.hidden = false;
     const finish = (ok) => {
       modal.hidden = true;
-      $("modalOk").removeEventListener("click", onOk);
-      $("modalCancel").removeEventListener("click", onCancel);
+      okBtn.removeEventListener("click", onOk);
+      cancelBtn.removeEventListener("click", onCancel);
+      modal.removeEventListener("click", onBackdrop);
       resolve(ok);
     };
     const onOk = () => finish(true);
     const onCancel = () => finish(false);
-    $("modalOk").addEventListener("click", onOk);
-    $("modalCancel").addEventListener("click", onCancel);
+    const onBackdrop = (event) => {
+      if (event.target === modal) finish(!cancelLabel);
+    };
+    okBtn.addEventListener("click", onOk);
+    cancelBtn.addEventListener("click", onCancel);
+    modal.addEventListener("click", onBackdrop);
+  });
+}
+
+function showError(message) {
+  const text = String(message || "").trim() || t(state.lang, "error");
+  setStatus(`${t(state.lang, "error")}: ${text}`, "err");
+  return openModal({
+    title: t(state.lang, "error"),
+    text,
+    okLabel: t(state.lang, "alertOk"),
+  });
+}
+
+function confirmAction(users, kind) {
+  const follow = kind === "follow";
+  let text;
+  if (users.length === 1) {
+    text = tf(state.lang, follow ? "confirmFollowOne" : "confirmOne", {
+      handle: users[0].screenName || users[0].id,
+    });
+  } else {
+    const minutes = Math.max(1, Math.ceil((users.length * 5 + Math.floor(users.length / 15) * 14) / 60));
+    text = tf(state.lang, follow ? "confirmFollowMany" : "confirmMany", { count: users.length, minutes });
+    if (users.length > 50) text += `\n${t(state.lang, "confirmBig")}`;
+  }
+  return openModal({
+    title: t(state.lang, follow ? "confirmFollowTitle" : "confirmTitle"),
+    text,
+    okLabel: t(state.lang, follow ? "confirmFollowOk" : "confirmOk"),
+    cancelLabel: t(state.lang, "confirmCancel"),
+    danger: !follow,
   });
 }
 
 function bindJobUi(running) {
   state.jobRunning = running;
   $("startBtn").hidden = running || state.scanning;
-  $("stopBtn").hidden = !(running || state.scanning);
+  $("stopBtn").hidden = !state.scanning;
   renderBatch();
+}
+
+const appliedJobIds = new Set();
+
+function applyJobUsers(kind, users) {
+  if (!state.result || !users?.length) return;
+  const fresh = users.filter((user) => user?.id && !appliedJobIds.has(String(user.id)));
+  if (!fresh.length) return;
+  for (const user of fresh) appliedJobIds.add(String(user.id));
+  state.result = kind === "follow" ? applyFollowed(state.result, fresh) : applyUnfollowed(state.result, fresh);
+  for (const user of fresh) {
+    state.selected.delete(user.id);
+    state.selected.delete(String(user.id));
+  }
 }
 
 function onJobProgress(kind, p) {
@@ -373,29 +439,38 @@ function onJobProgress(kind, p) {
   const line = actionLine(p, kind);
   setStatus(line, p.waiting === "rest" || p.rateLimited ? "warn" : "");
   updateActionProgress(p, line);
+  if (p.done && p.user) {
+    applyJobUsers(kind, [p.user]);
+    renderResult();
+  }
 }
 
 async function onJobDone(kind, payload) {
   bindJobUi(false);
-  await new Promise((r) => setTimeout(r, 200));
-  const { lastResult } = await chrome.storage.local.get("lastResult");
-  if (lastResult) state.result = withDerived(lastResult);
+  const result = payload?.result || { ok: payload?.ok || [], fail: payload?.fail || [] };
+  if (result.ok?.length) applyJobUsers(kind, result.ok);
+  if (state.result) await saveResult(state.result);
   await loadTodayCount();
   renderResult();
-  const result = payload?.result || { ok: payload?.ok || [], fail: payload?.fail || [] };
-  const total = payload?.total || result.ok.length + result.fail.length;
-  if (payload?.error?.name === "AbortError") {
-    setStatus(t(state.lang, "stopped"), "warn");
-    updateActionProgress(
-      { total, doneCount: result.ok.length, failCount: result.fail.length },
-      t(state.lang, "stopped")
-    );
+  const stored = await chrome.storage.local.get("friendshipJob");
+  const total =
+    Number(payload?.total) ||
+    Number(stored.friendshipJob?.total) ||
+    result.ok.length + result.fail.length;
+  if (payload?.error) {
+    const stopped = payload.error.name === "AbortError";
+    const line = stopped ? t(state.lang, "stopped") : `${t(state.lang, "error")}: ${payload.error.message || payload.error.name}`;
+    setStatus(line, stopped ? "warn" : "err");
+    updateActionProgress({ total, doneCount: result.ok.length, failCount: result.fail.length }, line);
+    if (!stopped) showError(payload.error.message || payload.error.name);
     return;
   }
   const doneKey = kind === "follow" ? "followDone" : "unfollowDone";
   const failBit = result.fail.length ? ` · ${t(state.lang, "unfollowFail")} ${result.fail.length}` : "";
-  setStatus(`${t(state.lang, doneKey)} ${result.ok.length}${failBit}`, result.fail.length ? "warn" : "");
+  const reason = result.fail[0]?.error ? ` · ${result.fail[0].error}` : "";
+  setStatus(`${t(state.lang, doneKey)} ${result.ok.length}${failBit}${reason}`, result.fail.length ? "warn" : "");
   updateActionProgress({ total, doneCount: result.ok.length, failCount: result.fail.length }, t(state.lang, doneKey));
+  if (!result.ok.length && result.fail[0]?.error) showError(result.fail[0].error);
 }
 
 async function loadTodayCount() {
@@ -411,19 +486,26 @@ async function bumpTodayCount(n) {
 }
 
 async function startFriendshipJob(kind, users) {
+  const packed = packUsers(users);
+  if (!packed.length) {
+    showError("missing user id");
+    return;
+  }
+  appliedJobIds.clear();
+  resetActionState({ total: packed.length, doneCount: 0, failCount: 0, index: 0, user: packed[0] || null });
   bindJobUi(true);
   $("progressWrap").hidden = true;
-  updateActionProgress({ total: users.length, doneCount: 0, failCount: 0 }, t(state.lang, kind === "follow" ? "followingAction" : "unfollowing"));
+  updateActionProgress(actionState, t(state.lang, kind === "follow" ? "followingAction" : "unfollowing"));
   setStatus(t(state.lang, "jobBackground"));
   try {
-    const res = await chrome.runtime.sendMessage({ type: "START_FRIENDSHIP", kind, users });
+    const res = await chrome.runtime.sendMessage({ type: "START_FRIENDSHIP", kind, users: packed });
     if (!res?.ok) {
       bindJobUi(false);
-      setStatus(`${t(state.lang, "error")}: ${res?.error || ""}`, "err");
+      showError(res?.error || t(state.lang, "error"));
     }
   } catch (error) {
     bindJobUi(false);
-    setStatus(`${t(state.lang, "error")}: ${error.message || error}`, "err");
+    showError(error.message || error);
   }
 }
 
@@ -619,7 +701,7 @@ async function startScan() {
     } else if (error?.code === "NOT_AUTHENTICATED") {
       setStatus(t(state.lang, "needLogin"), "warn");
     } else {
-      setStatus(`${t(state.lang, "error")}: ${error.message || error}`, "err");
+      showError(error.message || error);
     }
   } finally {
     state.scanning = false;
@@ -644,6 +726,10 @@ $("langBtn").addEventListener("click", async () => {
   await chrome.storage.local.set({ lang: state.lang });
   applyI18n();
   renderResult();
+});
+
+$("closePanelBtn").addEventListener("click", () => {
+  chrome.runtime.sendMessage({ type: "CLOSE_PANEL" }).catch(() => window.close());
 });
 
 $("openX").addEventListener("click", () => {
@@ -682,15 +768,31 @@ $("pullRewardsBtn").addEventListener("click", async () => {
   }
 });
 
-$("startBtn").addEventListener("click", startScan);
-$("stopBtn").addEventListener("click", () => {
+function stopJob() {
   state.abort?.abort();
-  if (state.jobRunning) {
-    chrome.runtime.sendMessage({ type: "STOP_FRIENDSHIP" }).catch(() => {});
-    bindJobUi(false);
-    setStatus(t(state.lang, "stopped"), "warn");
-  }
-});
+  chrome.runtime.sendMessage({ type: "STOP_FRIENDSHIP" }).catch(() => {});
+  bindJobUi(false);
+  setStatus(t(state.lang, "stopped"), "warn");
+}
+
+function resetJob() {
+  stopJob();
+  resetActionState();
+  $("actionProgress").hidden = true;
+  $("progressWrap").hidden = true;
+  $("apTotal").textContent = "0";
+  $("apDone").textContent = "0";
+  $("apLeft").textContent = "0";
+  $("apFail").textContent = "0";
+  $("apBar").style.width = "0";
+  $("apNow").textContent = "";
+  setStatus("");
+}
+
+$("startBtn").addEventListener("click", startScan);
+$("stopBtn").addEventListener("click", stopJob);
+$("jobStopBtn").addEventListener("click", stopJob);
+$("jobResetBtn").addEventListener("click", resetJob);
 
 chrome.runtime.onMessage.addListener((message) => {
   if (message?.type === "FRIENDSHIP_PROGRESS") onJobProgress(message.kind, message.progress || {});
@@ -764,13 +866,15 @@ $("list").addEventListener("change", (event) => {
 function onListClick(event) {
   const unfollowBtn = event.target.closest("[data-unfollow]");
   if (unfollowBtn) {
-    const user = currentRows().find((item) => item.id === unfollowBtn.dataset.unfollow);
+    const id = String(unfollowBtn.dataset.unfollow || "");
+    const user = currentRows().find((item) => String(item.id) === id);
     if (user) unfollowUsers([user]);
     return;
   }
   const followBtn = event.target.closest("[data-follow]");
   if (followBtn) {
-    const user = currentRows().find((item) => item.id === followBtn.dataset.follow);
+    const id = String(followBtn.dataset.follow || "");
+    const user = currentRows().find((item) => String(item.id) === id);
     if (user) followUsers([user]);
     return;
   }

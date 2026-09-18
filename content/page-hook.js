@@ -104,9 +104,15 @@
     if (event.data?.__xtool === "REQUEST_CAPTURE") emit();
     if (event.data?.__xtool === "FETCH") {
       const { id, url, headers, method, body } = event.data;
+      const cleanHeaders = {};
+      for (const [key, value] of Object.entries(headers || {})) {
+        if (value == null) continue;
+        if (/^(origin|referer|cookie|host|connection|content-length|sec-)/i.test(key)) continue;
+        cleanHeaders[key] = String(value);
+      }
       const init = {
         method: method || "GET",
-        headers: headers || {},
+        headers: cleanHeaders,
         credentials: "include",
       };
       if (body != null) init.body = body;
