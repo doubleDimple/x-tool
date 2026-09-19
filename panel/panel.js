@@ -1,5 +1,5 @@
 import { detectLang, t, tf } from "../lib/i18n.js";
-import { getAuth, resolveMe } from "../lib/api.js";
+import { getAuth, resolveMe, unfollowUser } from "../lib/api.js";
 import { runScan } from "../lib/scan.js";
 import { applyFollowed, applyUnfollowed, packUsers, persistable, withDerived } from "../lib/graph.js";
 import {
@@ -518,6 +518,48 @@ async function startFriendshipJob(kind, users) {
   }
 }
 
+async function unfollowSingleUser(user) {
+  if (!state.result || !user?.id) return;
+  if (busy()) {
+    setStatus(t(state.lang, "jobBusy"), "warn");
+    return;
+  }
+  if (!canUnfollowTab()) {
+    setStatus(t(state.lang, "cannotUnfollow"), "warn");
+    return;
+  }
+
+  // 立即乐观更新 UI 与存储，不需要弹窗确认和多余延迟
+  appliedJobIds.add(String(user.id));
+  state.result = applyUnfollowed(state.result, [user]);
+  state.selected.delete(user.id);
+  state.selected.delete(String(user.id));
+  saveResult(state.result).catch(() => {});
+  bumpTodayCount(1).catch(() => {});
+  renderResult();
+
+  const handle = user.screenName ? `@${user.screenName}` : user.id;
+  setStatus(`${t(state.lang, "unfollowing")} ${handle}`);
+
+  // 直接在后台发送请求，不阻塞界面交互
+  try {
+    const auth = await getAuth();
+    if (!auth.csrf || !auth.authToken) {
+      showError("Please log in to x.com first");
+      return;
+    }
+    await unfollowUser(user, auth.csrf);
+    setStatus(`${t(state.lang, "unfollowDone")} ${handle}`);
+  } catch (error) {
+    console.error("Single unfollow error:", error);
+    const msg = error.message || String(error);
+    setStatus(`${t(state.lang, "unfollowFail")} ${handle}: ${msg}`, "err");
+    if (error?.code === "RATE_LIMITED" || error?.code === "NOT_AUTHENTICATED") {
+      showError(msg);
+    }
+  }
+}
+
 async function unfollowUsers(users) {
   if (!users.length) return;
   if (busy()) {
@@ -890,7 +932,7 @@ function onListClick(event) {
   if (unfollowBtn) {
     const id = String(unfollowBtn.dataset.unfollow || "");
     const user = currentRows().find((item) => String(item.id) === id);
-    if (user) unfollowUsers([user]);
+    if (user) unfollowSingleUser(user);
     return;
   }
   const followBtn = event.target.closest("[data-follow]");
